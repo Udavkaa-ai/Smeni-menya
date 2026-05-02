@@ -18,7 +18,7 @@ function sortShifts(arr) {
   return [...arr].sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
 }
 
-export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
+export default function DayCard({ day, isToday, isPast, expanded = true, onTap, onLongPress }) {
   const press = useRef({ timer: null, fired: false, x: 0, y: 0 });
   const allShifts = day.shifts || [];
 
@@ -82,7 +82,7 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
 
   return (
     <div
-      className={`card tone-${cardTone} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''} ${conflict ? 'conflict' : ''}`}
+      className={`card tone-${cardTone} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''} ${conflict ? 'conflict' : ''} ${expanded ? 'expanded' : 'collapsed'}`}
       onTouchStart={handleStart}
       onTouchMove={handleMove}
       onTouchEnd={handleEnd}
@@ -100,18 +100,26 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
           <span className="dow">{dow}</span>
           <span className="date">{dnum}</span>
           {conflict && <span className="conflict-badge">⚠ накладывается</span>}
+          {!expanded && <span className="expand-hint">▾</span>}
         </div>
 
         <Timeline segments={segments} />
 
-        {totalShifts === 0 && (
+        {!expanded && (
+          <CompactSummary
+            sveta={sveta} maria={maria} work={work} none={!!none}
+            blocked={blocked} free={free}
+          />
+        )}
+
+        {expanded && totalShifts === 0 && (
           <div className="who">
             <span className="dot free" />
             <span className="empty-day">Не назначено</span>
           </div>
         )}
 
-        {totalShifts > 0 && (
+        {expanded && totalShifts > 0 && (
           <div className="shifts">
             {sveta.map((s) => <ShiftRow key={s.id} shift={s} />)}
             {maria.map((s) => <ShiftRow key={s.id} shift={s} />)}
@@ -125,7 +133,7 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
           </div>
         )}
 
-        {!none && blocked.length > 0 && (
+        {expanded && !none && blocked.length > 0 && (
           <div className="auto-blocks">
             {blocked.map((b, i) => (
               <div key={i} className="auto-blocked">
@@ -137,7 +145,7 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
           </div>
         )}
 
-        {!isFullyFree && free.length > 0 && (
+        {expanded && !isFullyFree && free.length > 0 && (
           <div className="auto-free">
             {free.map((f, i) => (
               <div key={i} className="auto-free-row">
@@ -148,7 +156,41 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
             ))}
           </div>
         )}
+
+        {expanded && totalShifts > 0 && (
+          <div className="card-edit-hint">тап ещё раз — редактировать</div>
+        )}
       </div>
+    </div>
+  );
+}
+
+function CompactSummary({ sveta, maria, work, none, blocked, free }) {
+  const chips = [];
+  if (sveta.length) chips.push({ cls: 'sveta', label: NAMES.SVETA, count: sveta.length });
+  if (maria.length) chips.push({ cls: 'maria', label: NAMES.MARIA, count: maria.length });
+  if (none) chips.push({ cls: 'none', label: 'Никто' });
+  if (!none && blocked.length) {
+    chips.push({ cls: 'none', label: 'Никто', count: blocked.length });
+  }
+  if (work.length) chips.push({ cls: 'work', label: 'работа', count: work.length });
+
+  if (chips.length === 0) {
+    return (
+      <div className="compact-summary">
+        <span className="empty-day">Не назначено</span>
+      </div>
+    );
+  }
+  return (
+    <div className="compact-summary">
+      {chips.map((c, i) => (
+        <span key={i} className={`compact-chip chip-${c.cls}`}>
+          <span className={`dot ${c.cls === 'work' ? 'free' : c.cls}`} />
+          {c.label}
+          {c.count > 1 ? ` ×${c.count}` : ''}
+        </span>
+      ))}
     </div>
   );
 }

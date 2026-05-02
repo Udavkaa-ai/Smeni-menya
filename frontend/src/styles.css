@@ -241,6 +241,56 @@ textarea { resize: vertical; min-height: 90px; }
 .day-timeline-axis .ax:first-child { transform: none; left: 0 !important; }
 .day-timeline-axis .ax:last-child  { transform: none; left: auto !important; right: 0; }
 
+/* Hour-axis labels are visually noisy on collapsed cards — hide them.
+   Today / expanded cards keep them. */
+.card.collapsed .day-timeline-axis { display: none; }
+.card.collapsed { padding-bottom: 12px; }
+
+/* Compact summary chips shown when card is collapsed */
+.compact-summary {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 4px;
+  margin-left: 4px;
+}
+.compact-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.7);
+  border: 1px solid var(--border);
+  font-size: 12px; font-weight: 700;
+  color: var(--fg-2);
+}
+.compact-chip.chip-work {
+  font-style: italic; font-weight: 600;
+  color: var(--muted);
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255,255,255,0.7),
+    rgba(255,255,255,0.7) 4px,
+    rgba(0,0,0,0.04) 4px,
+    rgba(0,0,0,0.04) 6px
+  );
+}
+.compact-chip .dot { width: 10px; height: 10px; }
+
+/* Tiny chevron in row1 hinting at a collapsed state */
+.row1 .expand-hint {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* Subtle hint at the bottom of an expanded card that another tap edits */
+.card-edit-hint {
+  margin-top: 4px;
+  font-size: 11px; color: var(--muted);
+  letter-spacing: 0.04em;
+  text-align: center;
+  opacity: 0.7;
+}
+
 .card.tone-sveta { background: linear-gradient(135deg, #fff 60%, var(--color-sveta-bg)); }
 .card.tone-maria { background: linear-gradient(135deg, #fff 60%, var(--color-maria-bg)); }
 .card.tone-none  { background: linear-gradient(135deg, #fff 60%, var(--color-none-bg)); }
