@@ -1,11 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, getUser } from '../api/client.js';
-import { useWeekStore, addDaysIso } from '../store/useWeekStore.js';
+import { useWeekStore } from '../store/useWeekStore.js';
 import DayCard from './DayCard.jsx';
 import DayModal from './DayModal.jsx';
 import SwapModal from './SwapModal.jsx';
 import SwapBanner from './SwapBanner.jsx';
+import { todayIso } from '../utils/format.js';
 
 const MONTHS = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
 
@@ -20,16 +21,17 @@ function rangeLabel(start) {
     : `${a.getUTCDate()} ${aMonth} – ${b.getUTCDate()} ${bMonth}`;
 }
 
-export default function WeekView({ live }) {
+export default function WeekView() {
   const weekStart = useWeekStore((s) => s.weekStart);
   const next = useWeekStore((s) => s.next);
   const prev = useWeekStore((s) => s.prev);
   const goToday = useWeekStore((s) => s.goToday);
   const qc = useQueryClient();
 
-  const [openDayId, setOpenDayId] = useState(null);
+  const [openDate, setOpenDate] = useState(null);
   const [swapFromDate, setSwapFromDate] = useState(null);
   const [swaps, setSwaps] = useState([]);
+  const [showPast, setShowPast] = useState(false);
   const me = getUser();
 
   const { data, isLoading } = useQuery({
@@ -41,18 +43,39 @@ export default function WeekView({ live }) {
     api.listSwaps().then(setSwaps).catch(() => {});
   }, []);
 
+  // Reset past-days collapse when navigating between weeks.
+  useEffect(() => { setShowPast(false); }, [weekStart]);
+
+  // Apply real-time updates from WebSocket.
   useEffect(() => {
     function onEvent(e) {
       const msg = e.detail;
       if (!msg) return;
-      if (msg.type === 'DAY_UPDATED') {
+      if (msg.type === 'SHIFT_UPSERTED') {
+        const shift = msg.payload?.shift;
+        if (!shift) return;
         qc.setQueriesData({ queryKey: ['week'] }, (prev) => {
           if (!prev) return prev;
-          const inWeek = prev.days.some((d) => d.id === msg.payload.id);
-          if (!inWeek) return prev;
+          if (!prev.days.some((d) => d.date === shift.date)) return prev;
           return {
             ...prev,
-            days: prev.days.map((d) => (d.id === msg.payload.id ? msg.payload : d)),
+            days: prev.days.map((d) => {
+              if (d.date !== shift.date) return d;
+              const others = (d.shifts || []).filter((s) => s.user_name !== shift.user_name);
+              return { ...d, shifts: [...others, shift].sort((a, b) => a.user_name.localeCompare(b.user_name)) };
+            }),
+          };
+        });
+      } else if (msg.type === 'SHIFT_REMOVED') {
+        const { date, user_name } = msg.payload || {};
+        qc.setQueriesData({ queryKey: ['week'] }, (prev) => {
+          if (!prev) return prev;
+          if (!prev.days.some((d) => d.date === date)) return prev;
+          return {
+            ...prev,
+            days: prev.days.map((d) =>
+              d.date !== date ? d : { ...d, shifts: (d.shifts || []).filter((s) => s.user_name !== user_name) }
+            ),
           };
         });
       } else if (msg.type === 'SWAP_CREATED' || msg.type === 'SWAP_UPDATED') {
@@ -92,8 +115,19 @@ export default function WeekView({ live }) {
   }
 
   const days = data?.days || [];
-  const openDay = days.find((d) => d.id === openDayId) || null;
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
+
+  const partition = useMemo(() => {
+    const past = [];
+    const present = [];
+    for (const d of days) {
+      if (d.date < today) past.push(d);
+      else present.push(d);
+    }
+    return { past, present };
+  }, [days, today]);
+
+  const openDay = days.find((d) => d.date === openDate) || null;
 
   const incoming = swaps.find((s) => s.to_user === me && s.status === 'PENDING');
   const outgoing = swaps.find((s) => s.from_user === me && s.status === 'PENDING');
@@ -112,7 +146,6 @@ export default function WeekView({ live }) {
       {incoming && (
         <SwapBanner
           swap={incoming}
-          mode="incoming"
           onChange={(updated) => {
             setSwaps((s) => s.map((x) => (x.id === updated.id ? updated : x)));
           }}
@@ -132,12 +165,41 @@ export default function WeekView({ live }) {
         onTouchEnd={onTouchEnd}
       >
         {isLoading && <div className="loading">Загружаю неделю…</div>}
-        {days.map((d) => (
+
+        {/* Past days collapsed under a single button */}
+        {partition.past.length > 0 && (
+          <>
+            <button
+              className={`past-toggle ${showPast ? 'open' : ''}`}
+              onClick={() => setShowPast((v) => !v)}
+            >
+              <span className="past-toggle-icon">{showPast ? '▾' : '▸'}</span>
+              <span>Прошедшие дни ({partition.past.length})</span>
+            </button>
+            {showPast && (
+              <div className="past-list">
+                {partition.past.map((d) => (
+                  <DayCard
+                    key={d.date}
+                    day={d}
+                    isToday={d.date === today}
+                    isPast
+                    onTap={() => setOpenDate(d.date)}
+                    onLongPress={() => setSwapFromDate(d.date)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Today + future */}
+        {partition.present.map((d) => (
           <DayCard
-            key={d.id}
+            key={d.date}
             day={d}
-            isToday={d.date === todayIso}
-            onTap={() => setOpenDayId(d.id)}
+            isToday={d.date === today}
+            onTap={() => setOpenDate(d.date)}
             onLongPress={() => setSwapFromDate(d.date)}
           />
         ))}
@@ -146,7 +208,7 @@ export default function WeekView({ live }) {
       {openDay && (
         <DayModal
           day={openDay}
-          onClose={() => setOpenDayId(null)}
+          onClose={() => setOpenDate(null)}
         />
       )}
       {swapFromDate && (

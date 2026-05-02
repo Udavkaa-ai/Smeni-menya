@@ -1,18 +1,33 @@
 import React, { useRef } from 'react';
+import { NAMES, timesOverlap, timeRange } from '../utils/format.js';
 
 const DOW = ['ВС','ПН','ВТ','СР','ЧТ','ПТ','СБ'];
-const NAME = { SVETA: 'Света', MARIA: 'Мария', NONE: 'Никто' };
 
-function colorClass(assigned) {
-  if (assigned === 'SVETA') return 'sveta';
-  if (assigned === 'MARIA') return 'maria';
-  if (assigned === 'NONE') return 'none';
+function shiftClass(user) {
+  if (user === 'SVETA') return 'sveta';
+  if (user === 'MARIA') return 'maria';
+  if (user === 'NONE')  return 'none';
   return 'free';
 }
 
-export default function DayCard({ day, isToday, onTap, onLongPress }) {
-  const cls = colorClass(day.assigned_to);
+export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
   const press = useRef({ timer: null, fired: false, x: 0, y: 0 });
+  const shifts = day.shifts || [];
+
+  const sveta = shifts.find((s) => s.user_name === 'SVETA');
+  const maria = shifts.find((s) => s.user_name === 'MARIA');
+  const none  = shifts.find((s) => s.user_name === 'NONE');
+
+  const conflict =
+    (sveta && maria && timesOverlap(sveta, maria)) ||
+    (none && (sveta || maria));
+
+  // Overall card tone: prefer 'sveta'/'maria' if present, then 'none', else 'free'.
+  let cardTone = 'free';
+  if (sveta && maria) cardTone = 'duo';
+  else if (sveta) cardTone = 'sveta';
+  else if (maria) cardTone = 'maria';
+  else if (none)  cardTone = 'none';
 
   function handleStart(e) {
     const p = e.touches ? e.touches[0] : e;
@@ -43,9 +58,11 @@ export default function DayCard({ day, isToday, onTap, onLongPress }) {
   const dow = DOW[dt.getUTCDay()];
   const dnum = dt.getUTCDate();
 
+  const anyWork = shifts.some((s) => s.is_work_day);
+
   return (
     <div
-      className={`card ${cls} ${isToday ? 'today' : ''}`}
+      className={`card tone-${cardTone} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''} ${conflict ? 'conflict' : ''}`}
       onTouchStart={handleStart}
       onTouchMove={handleMove}
       onTouchEnd={handleEnd}
@@ -58,16 +75,42 @@ export default function DayCard({ day, isToday, onTap, onLongPress }) {
       <div className="row1">
         <span className="dow">{dow}</span>
         <span className="date">{dnum}</span>
-        {day.is_work_day && <span className="work">основная работа</span>}
+        {anyWork && <span className="work">основная работа</span>}
+        {conflict && <span className="conflict-badge">⚠ накладывается</span>}
       </div>
-      <div className="who">
-        <span className={`dot ${cls}`} />
-        {day.assigned_to ? NAME[day.assigned_to] : <span className="empty-day">Не назначено</span>}
-      </div>
-      {(day.start_time || day.end_time) && (
-        <div className="meta">{day.start_time || '—'}–{day.end_time || '—'}</div>
+
+      {shifts.length === 0 && (
+        <div className="who">
+          <span className="dot free" />
+          <span className="empty-day">Не назначено</span>
+        </div>
       )}
-      {day.description && <div className="desc">{day.description}</div>}
+
+      {shifts.length > 0 && (
+        <div className="shifts">
+          {sveta && <ShiftRow shift={sveta} />}
+          {maria && <ShiftRow shift={maria} />}
+          {none && (
+            <div className="shift-row none-row">
+              <span className="dot none" />
+              <span className="who-name">Никто из нас не сможет</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShiftRow({ shift }) {
+  const cls = shiftClass(shift.user_name);
+  const tr = timeRange(shift.start_time, shift.end_time);
+  return (
+    <div className={`shift-row ${cls}-row`}>
+      <span className={`dot ${cls}`} />
+      <span className="who-name">{NAMES[shift.user_name]}</span>
+      {tr && <span className="time-pill">{tr}</span>}
+      {shift.description && <div className="desc">{shift.description}</div>}
     </div>
   );
 }

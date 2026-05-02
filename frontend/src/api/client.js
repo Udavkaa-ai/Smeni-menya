@@ -40,8 +40,12 @@ export const api = {
   subscribePush: (sub) =>
     request('/push/subscribe', { method: 'POST', body: JSON.stringify(sub) }),
   week: (start) => request(`/week?start=${start}`),
-  patchDay: (id, body) =>
-    request(`/day/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  putShift: (body) =>
+    request('/shift', { method: 'PUT', body: JSON.stringify(body) }),
+  deleteShift: ({ date, user_name, version }) =>
+    request(`/shift?date=${date}&user_name=${user_name}&version=${version}`, {
+      method: 'DELETE',
+    }),
   createSwap: (from_date, to_date) =>
     request('/swap', { method: 'POST', body: JSON.stringify({ from_date, to_date }) }),
   listSwaps: () => request('/swap'),

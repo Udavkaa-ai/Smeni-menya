@@ -5,9 +5,51 @@ import { isAuthed, getUser, setSession } from './api/client.js';
 import { createRealtime } from './api/realtime.js';
 import { ensurePushSubscription } from './api/push.js';
 import { useWeekStore } from './store/useWeekStore.js';
+import { formatNotification, NAMES, ruDateShort } from './utils/format.js';
 
-const NAME = { SVETA: 'Света', MARIA: 'Мария' };
+const NAME = NAMES;
 const CLS  = { SVETA: 'sveta', MARIA: 'maria' };
+
+// Build a notification-shaped payload from a SHIFT_UPSERTED / SHIFT_REMOVED event
+// so we can reuse the same Russian formatter.
+function eventToToastPayload(msg) {
+  if (msg.type === 'SHIFT_UPSERTED') {
+    const s = msg.payload?.shift;
+    if (!s) return null;
+    if (msg.payload.action === 'added') {
+      return {
+        type: s.user_name === 'NONE' ? 'none_marked' : 'shift_added',
+        date: s.date,
+        by: s.updated_by,
+        target_user: s.user_name,
+        start_time: s.start_time,
+        end_time: s.end_time,
+        description: s.description,
+      };
+    }
+    return {
+      type: 'shift_updated',
+      date: s.date,
+      by: s.updated_by,
+      target_user: s.user_name,
+      start_time: s.start_time,
+      end_time: s.end_time,
+      description: s.description,
+      is_work_day: s.is_work_day,
+      changes: ['time', 'description', 'work_day'], // approximate; full diff is in the push payload
+    };
+  }
+  if (msg.type === 'SHIFT_REMOVED') {
+    const { date, user_name, prev } = msg.payload || {};
+    return {
+      type: user_name === 'NONE' ? 'none_unmarked' : 'shift_removed',
+      date,
+      by: prev?.updated_by,
+      target_user: user_name,
+    };
+  }
+  return null;
+}
 
 export default function App() {
   const [authed, setAuthed] = useState(isAuthed());
@@ -32,11 +74,18 @@ export default function App() {
       onStatus: setLive,
       onEvent: (msg) => {
         window.dispatchEvent(new CustomEvent('sm:event', { detail: msg }));
-        if (msg.type === 'DAY_UPDATED' && msg.payload?.updated_by && msg.payload.updated_by !== me) {
-          setToast(`${NAME[msg.payload.updated_by] || msg.payload.updated_by} изменил(а) ${msg.payload.date}`);
+        // Show toast only for events caused by the OTHER user.
+        const payload = eventToToastPayload(msg);
+        if (payload && payload.by && payload.by !== me) {
+          setToast(formatNotification(payload));
         }
         if (msg.type === 'SWAP_CREATED' && msg.payload?.to_user === me) {
-          setToast('Поступил запрос на обмен');
+          setToast(formatNotification({
+            type: 'shift_request',
+            by: msg.payload.from_user,
+            from_date: msg.payload.from_date,
+            to_date: msg.payload.to_date,
+          }));
         }
       }
     });

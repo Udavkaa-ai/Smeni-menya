@@ -5,28 +5,82 @@ precacheAndRoute(self.__WB_MANIFEST || []);
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
-const TITLES = {
-  day_updated: 'День изменён',
-  shift_request: 'Запрос на обмен',
-  shift_accepted: 'Обмен принят',
-  shift_rejected: 'Обмен отклонён',
-  empty_day_warning: 'Внимание: день не назначен',
-};
+const NAMES = { SVETA: 'Света', MARIA: 'Мария', NONE: 'Никто' };
+const DOWS = ['вс','пн','вт','ср','чт','пт','сб'];
+const MONTHS = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
 
-const NAMES = { SVETA: 'Света', MARIA: 'Мария' };
+function ruDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00Z');
+  return `${DOWS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+}
+function timeRange(s, e) {
+  if (!s && !e) return null;
+  return `${s || '—'}–${e || '—'}`;
+}
+function trim(s, n) {
+  if (!s) return '';
+  return s.length > n ? s.slice(0, n - 1) + '…' : s;
+}
+
+function buildMessage(p) {
+  const by = NAMES[p.by] || p.by || '';
+  const date = ruDate(p.date);
+  const tr = timeRange(p.start_time, p.end_time);
+
+  switch (p.type) {
+    case 'shift_added': {
+      const time = tr ? `, ${tr}` : '';
+      return { title: 'Новая смена', body: `${by} взяла ${date}${time}` };
+    }
+    case 'shift_removed':
+      return { title: 'Смена снята', body: `${by} убрала свою смену на ${date}` };
+    case 'shift_updated': {
+      const parts = [];
+      if (p.changes?.includes('time')) {
+        const prev = timeRange(p.prev_start_time, p.prev_end_time);
+        const next = tr || 'без времени';
+        parts.push(prev ? `время: ${prev} → ${next}` : `время: ${next}`);
+      }
+      if (p.changes?.includes('description')) {
+        parts.push(p.description ? `описание: «${trim(p.description, 40)}»` : 'убрала описание');
+      }
+      if (p.changes?.includes('work_day')) {
+        parts.push(p.is_work_day ? 'отметила «основная работа»' : 'сняла «основная работа»');
+      }
+      const tail = parts.length ? ` — ${parts.join(', ')}` : '';
+      return { title: 'Смена изменена', body: `${by} обновила ${date}${tail}` };
+    }
+    case 'none_marked':
+      return { title: 'Никто не сможет', body: `${by} отметила ${date}: никто из нас не сможет` };
+    case 'none_unmarked':
+      return { title: 'Отметка снята', body: `${by} убрала отметку «никто» с ${date}` };
+    case 'shift_request':
+      return {
+        title: 'Запрос на обмен',
+        body: `${by} предлагает обмен: ${ruDate(p.from_date)} ↔ ${ruDate(p.to_date)}`
+      };
+    case 'shift_accepted':
+      return {
+        title: 'Обмен принят',
+        body: `${by} приняла обмен: ${ruDate(p.from_date)} ↔ ${ruDate(p.to_date)}`
+      };
+    case 'shift_rejected':
+      return {
+        title: 'Обмен отклонён',
+        body: `${by} отклонила обмен: ${ruDate(p.from_date)} ↔ ${ruDate(p.to_date)}`
+      };
+    case 'empty_day_warning':
+      return { title: 'Внимание', body: `День ${date} остался без дежурного` };
+    default:
+      return { title: 'Сменимся', body: `${by} изменила ${date}`.trim() };
+  }
+}
 
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch {}
-  const title = TITLES[data.type] || 'Сменимся';
-  const who = data.by ? NAMES[data.by] || data.by : '';
-  let body = '';
-  if (data.type === 'day_updated') body = `${who} изменил(а) ${data.date}`;
-  else if (data.type === 'shift_request') body = `${who}: ${data.from_date} ↔ ${data.to_date}`;
-  else if (data.type === 'shift_accepted') body = `Обмен ${data.from_date} ↔ ${data.to_date} принят`;
-  else if (data.type === 'shift_rejected') body = `Обмен ${data.from_date} ↔ ${data.to_date} отклонён`;
-  else if (data.type === 'empty_day_warning') body = `День ${data.date} остался без дежурного`;
-
+  const { title, body } = buildMessage(data);
   event.waitUntil(
     self.registration.showNotification(title, {
       body,

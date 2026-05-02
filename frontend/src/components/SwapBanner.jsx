@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api } from '../api/client.js';
 import { useWeekStore } from '../store/useWeekStore.js';
+import { ruDateShort, NAMES } from '../utils/format.js';
 
 export default function SwapBanner({ swap, onChange }) {
   const setToast = useWeekStore((s) => s.setToast);
@@ -22,8 +23,8 @@ export default function SwapBanner({ swap, onChange }) {
   return (
     <div className="banner swap">
       <div>
-        <b>{swap.from_user === 'SVETA' ? 'Света' : 'Мария'}</b> предлагает обмен:{' '}
-        <b>{swap.from_date}</b> ↔ <b>{swap.to_date}</b>
+        <b>{NAMES[swap.from_user]}</b> предлагает обмен:{' '}
+        <b>{ruDateShort(swap.from_date)}</b> ↔ <b>{ruDateShort(swap.to_date)}</b>
       </div>
       <div className="actions">
         <button className="btn" disabled={busy} onClick={() => respond('reject')}>Отклонить</button>

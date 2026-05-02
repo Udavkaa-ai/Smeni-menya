@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   push_subscription JSONB
 );
 
+-- Legacy table from v1, kept for data migration only.
 CREATE TABLE IF NOT EXISTS days (
   id SERIAL PRIMARY KEY,
   date DATE UNIQUE NOT NULL,
@@ -22,7 +23,23 @@ CREATE TABLE IF NOT EXISTS days (
   version INT DEFAULT 1
 );
 
-CREATE INDEX IF NOT EXISTS days_date_idx ON days(date);
+-- Per-user shift entries: each user can independently mark her own shift on a date.
+-- A special pseudo-user 'NONE' represents "никто из нас не сможет".
+CREATE TABLE IF NOT EXISTS shifts (
+  id SERIAL PRIMARY KEY,
+  date DATE NOT NULL,
+  user_name TEXT NOT NULL CHECK (user_name IN ('SVETA','MARIA','NONE')),
+  start_time TEXT,
+  end_time TEXT,
+  description TEXT DEFAULT '',
+  is_work_day BOOLEAN DEFAULT false,
+  updated_by TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  version INT DEFAULT 1,
+  UNIQUE (date, user_name)
+);
+
+CREATE INDEX IF NOT EXISTS shifts_date_idx ON shifts(date);
 
 CREATE TABLE IF NOT EXISTS swap_requests (
   id SERIAL PRIMARY KEY,
@@ -62,9 +79,28 @@ async function ensureUsers() {
   );
 }
 
+// One-time idempotent migration: copy any old `days` rows into `shifts`.
+// Old model had one assignee per day; new model has up to one shift per (date, user).
+async function migrateDaysToShifts() {
+  await pool.query(`
+    INSERT INTO shifts (date, user_name, start_time, end_time, description, is_work_day, updated_by, updated_at)
+    SELECT date, assigned_to,
+           NULLIF(start_time, ''),
+           NULLIF(end_time, ''),
+           COALESCE(description, ''),
+           COALESCE(is_work_day, false),
+           updated_by,
+           COALESCE(updated_at, NOW())
+    FROM days
+    WHERE assigned_to IS NOT NULL
+    ON CONFLICT (date, user_name) DO NOTHING;
+  `);
+}
+
 export async function migrate() {
   await pool.query(SCHEMA);
   await ensureUsers();
+  await migrateDaysToShifts();
   console.log('[migrate] schema ready, users seeded');
 }
 

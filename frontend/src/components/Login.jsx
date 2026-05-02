@@ -1,9 +1,13 @@
 import React, { useState } from 'react';
 import { api, setSession } from '../api/client.js';
 
+const LAST_USER_KEY = 'sm_last_user';
+
 export default function Login({ onLoggedIn }) {
-  const [name, setName] = useState('SVETA');
+  const initialName = localStorage.getItem(LAST_USER_KEY) || 'SVETA';
+  const [name, setName] = useState(initialName);
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -13,6 +17,7 @@ export default function Login({ onLoggedIn }) {
     setError(null);
     try {
       const { token, name: who } = await api.login(name, password);
+      localStorage.setItem(LAST_USER_KEY, who);
       setSession(token, who);
       onLoggedIn?.(who);
     } catch {
@@ -42,13 +47,24 @@ export default function Login({ onLoggedIn }) {
           </label>
         </div>
         <span className="label">Пароль</span>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Введите пароль"
-          autoComplete="current-password"
-        />
+        <div className="password-field">
+          <input
+            type={showPassword ? 'text' : 'password'}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Введите пароль"
+            autoComplete="current-password"
+          />
+          <button
+            type="button"
+            className="eye-btn"
+            onClick={() => setShowPassword((v) => !v)}
+            aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+            tabIndex={-1}
+          >
+            {showPassword ? '🙈' : '👁'}
+          </button>
+        </div>
         {error && <div style={{ color: '#B91C5B', fontSize: 14, fontWeight: 600 }}>{error}</div>}
         <button className="btn primary full" disabled={busy} type="submit">
           {busy ? 'Вхожу…' : 'Войти'}

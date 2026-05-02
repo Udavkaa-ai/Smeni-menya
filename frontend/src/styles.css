@@ -159,11 +159,11 @@ textarea { resize: vertical; min-height: 90px; }
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   padding: 14px 16px;
-  display: flex; flex-direction: column; gap: 8px;
+  display: flex; flex-direction: column; gap: 10px;
   position: relative;
   overflow: hidden;
   border: 1px solid var(--border);
-  transition: transform .08s ease, box-shadow .15s ease;
+  transition: transform .08s ease, box-shadow .15s ease, opacity .15s ease;
   user-select: none;
 }
 .card:active { transform: scale(0.985); box-shadow: var(--shadow-md); }
@@ -174,15 +174,34 @@ textarea { resize: vertical; min-height: 90px; }
   background: var(--color-free);
   border-radius: 8px 0 0 8px;
 }
-.card.sveta::before { background: var(--color-sveta); }
-.card.maria::before { background: var(--color-maria); }
-.card.none::before  { background: var(--color-none); }
-.card.free::before  { background: var(--color-free); }
+.card.tone-sveta::before { background: var(--color-sveta); }
+.card.tone-maria::before { background: var(--color-maria); }
+.card.tone-none::before  { background: var(--color-none); }
+.card.tone-free::before  { background: var(--color-free); }
+.card.tone-duo::before {
+  background: linear-gradient(180deg, var(--color-sveta) 0%, var(--color-sveta) 50%, var(--color-maria) 50%, var(--color-maria) 100%);
+}
 
-.card.sveta { background: linear-gradient(135deg, #fff 60%, var(--color-sveta-bg)); }
-.card.maria { background: linear-gradient(135deg, #fff 60%, var(--color-maria-bg)); }
-.card.none  { background: linear-gradient(135deg, #fff 60%, var(--color-none-bg)); }
-.card.free  { background: linear-gradient(135deg, #fff 60%, var(--color-free-bg)); }
+.card.tone-sveta { background: linear-gradient(135deg, #fff 60%, var(--color-sveta-bg)); }
+.card.tone-maria { background: linear-gradient(135deg, #fff 60%, var(--color-maria-bg)); }
+.card.tone-none  { background: linear-gradient(135deg, #fff 60%, var(--color-none-bg)); }
+.card.tone-free  { background: linear-gradient(135deg, #fff 60%, var(--color-free-bg)); }
+.card.tone-duo   {
+  background:
+    linear-gradient(135deg, var(--color-sveta-bg) 0%, #fff 50%, var(--color-maria-bg) 100%);
+}
+
+.card.conflict {
+  border-color: #FCA5A5;
+  background-image: linear-gradient(135deg, #fff 0%, #FFE9EC 100%);
+  box-shadow: 0 8px 20px rgba(220, 80, 100, 0.15);
+}
+.card.conflict::before { background: #EF4444; }
+
+.card.past {
+  opacity: 0.6;
+  filter: grayscale(0.2);
+}
 
 .card.today {
   border: 1.5px solid transparent;
@@ -258,6 +277,116 @@ textarea { resize: vertical; min-height: 90px; }
   margin-left: auto;
   font-size: 11px; color: var(--muted);
 }
+
+/* Multi-shift rows inside a day card */
+.card .shifts {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-left: 4px;
+}
+.card .shift-row {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+  font-size: 15px; font-weight: 600;
+  color: var(--fg);
+}
+.card .shift-row .who-name { font-weight: 700; }
+.card .shift-row .time-pill {
+  font-size: 13px; font-weight: 600;
+  color: var(--fg-2);
+  background: rgba(255,255,255,0.7);
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.card .shift-row .desc {
+  flex-basis: 100%;
+  font-size: 13px; color: var(--fg-2); font-weight: 500;
+  white-space: pre-wrap; word-break: break-word;
+  margin-top: 2px;
+  padding-left: 22px;
+}
+.card .none-row .who-name { color: #8a4500; }
+
+.card .conflict-badge {
+  margin-left: auto;
+  font-size: 11px; font-weight: 800;
+  background: #FEE2E2; color: #B91C1C;
+  border-radius: 999px;
+  padding: 4px 10px;
+  letter-spacing: 0.02em;
+}
+
+/* Past-days collapse toggle */
+.past-toggle {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  background: rgba(255,255,255,0.7);
+  border: 1.5px dashed var(--border);
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-weight: 700; font-size: 14px;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+  transition: background .15s, color .15s;
+}
+.past-toggle:active { transform: scale(0.985); }
+.past-toggle:hover { background: rgba(255,255,255,0.9); color: var(--fg-2); }
+.past-toggle .past-toggle-icon {
+  font-size: 12px; line-height: 1;
+  width: 16px; text-align: center;
+}
+.past-list {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 4px 0 8px;
+}
+
+/* Day modal: other user's shift preview */
+.other-shift {
+  background: var(--bg-2);
+  border-radius: 14px;
+  padding: 12px 14px;
+  border-left: 4px solid var(--color-free);
+}
+.other-shift.sveta { border-left-color: var(--color-sveta); background: linear-gradient(135deg, #fff, var(--color-sveta-bg)); }
+.other-shift.maria { border-left-color: var(--color-maria); background: linear-gradient(135deg, #fff, var(--color-maria-bg)); }
+.other-shift .other-head { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.other-shift .other-time {
+  margin-top: 4px;
+  display: inline-block;
+  background: rgba(255,255,255,0.7);
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 13px; font-weight: 600;
+  color: var(--fg-2);
+}
+.other-shift .other-desc {
+  margin-top: 6px;
+  font-size: 13px; color: var(--fg-2);
+  white-space: pre-wrap;
+}
+
+.checkbox-row.big {
+  font-size: 16px;
+  padding: 14px 16px;
+}
+
+/* Password field with eye toggle */
+.password-field {
+  position: relative;
+}
+.password-field input { padding-right: 48px; }
+.password-field .eye-btn {
+  position: absolute;
+  right: 6px; top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  width: 40px; height: 40px;
+  display: grid; place-items: center;
+  border-radius: 10px;
+  color: var(--muted);
+}
+.password-field .eye-btn:active { background: var(--bg-2); }
 
 .dot.sveta { background: var(--color-sveta); }
 .dot.maria { background: var(--color-maria); }
