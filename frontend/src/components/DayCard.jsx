@@ -26,7 +26,6 @@ export default function DayCard({ day, isToday, isPast, onTap }) {
   const allShifts = day.shifts || [];
   const svetaBusy = sortShifts(allShifts.filter((s) => s.user_name === 'SVETA' && isBusyKind(s)));
   const mariaBusy = sortShifts(allShifts.filter((s) => s.user_name === 'MARIA' && isBusyKind(s)));
-  const none = allShifts.find((s) => s.user_name === 'NONE');
 
   const { blocked } = computeDayCoverage(allShifts);
   const segments = buildTimelineSegments(allShifts);
@@ -46,7 +45,7 @@ export default function DayCard({ day, isToday, isPast, onTap }) {
   const mariaVbar = busyVbar('MARIA');
 
   let cardTone = 'free';
-  if (none || blocked.length) cardTone = 'none';
+  if (blocked.length) cardTone = 'none';
   else if (svetaBusy.length && mariaBusy.length) cardTone = 'duo';
   else if (svetaBusy.length) cardTone = 'sveta';
   else if (mariaBusy.length) cardTone = 'maria';
@@ -55,7 +54,7 @@ export default function DayCard({ day, isToday, isPast, onTap }) {
   const dow = DOW[dt.getUTCDay()];
   const dnum = dt.getUTCDate();
 
-  const totalEntries = svetaBusy.length + mariaBusy.length + (none ? 1 : 0);
+  const totalEntries = svetaBusy.length + mariaBusy.length;
 
   return (
     <div
@@ -86,23 +85,15 @@ export default function DayCard({ day, isToday, isPast, onTap }) {
           <div className="busy-list">
             {svetaBusy.map((s) => <BusyCard key={s.id} shift={s} />)}
             {mariaBusy.map((s) => <BusyCard key={s.id} shift={s} />)}
-            {none && (
-              <div className="busy-card none">
-                <div className="busy-head">
-                  <span className="dot none" />
-                  <b>Никто из нас не сможет (весь день)</b>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
-        {!none && blocked.length > 0 && (
+        {blocked.length > 0 && (
           <div className="auto-blocks">
             {blocked.map((b, i) => (
               <div key={i} className="auto-blocked">
                 <span className="dot none" />
-                <span>Никто не сможет</span>
+                <span>Обе заняты — нужно решить</span>
                 <span className="time-pill">{intervalLabel(b)}</span>
               </div>
             ))}

@@ -34,7 +34,6 @@ export default function DayModal({ day, onClose }) {
 
   const [busy, setBusy] = useState(initialMine);
   const [removed, setRemoved] = useState([]);
-  const [noOne, setNoOne] = useState(!!noneShift);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -95,8 +94,9 @@ export default function DayModal({ day, onClose }) {
         }));
       }
     }
-    if (noOne && !noneShift) ops.push(api.postShift({ date: day.date, user_name: 'NONE' }));
-    else if (!noOne && noneShift) ops.push(api.deleteShift(noneShift.id, noneShift.version));
+    // Если в БД лежит legacy NONE-маркер — снимаем его при сохранении,
+    // чтобы экраны не залипали в «весь день никто не сможет».
+    if (noneShift) ops.push(api.deleteShift(noneShift.id, noneShift.version).catch(() => {}));
 
     if (ops.length === 0) {
       setSaving(false);
@@ -188,11 +188,6 @@ export default function DayModal({ day, onClose }) {
             + Добавить занятость
           </button>
         </div>
-
-        <label className="checkbox-row">
-          <input type="checkbox" checked={noOne} onChange={(e) => setNoOne(e.target.checked)} />
-          <span>Никто из нас не сможет (весь день)</span>
-        </label>
 
         {(busy.length > 0 || noneShift) && (
           <button type="button" className="btn danger full" disabled={saving} onClick={clearDay}>
