@@ -53,39 +53,43 @@ export default function DayModal({ day, onClose }) {
   async function save() {
     setBusy(true);
     setError(null);
-    try {
-      // 1) Removed shifts → DELETE
-      for (const r of removed) {
-        await api.deleteShift(r.id, r.version);
+    // Build all operations and fire them in parallel — they're independent.
+    const ops = [];
+    for (const r of removed) ops.push(api.deleteShift(r.id, r.version));
+    for (const s of mine) {
+      if (s._new) {
+        ops.push(api.postShift({
+          date: day.date,
+          user_name: me,
+          start_time: s.start_time,
+          end_time: s.end_time,
+          description: s.description,
+          is_work_day: s.is_work_day,
+        }));
+      } else if (s._dirty) {
+        ops.push(api.patchShift(s.id, {
+          start_time: s.start_time,
+          end_time: s.end_time,
+          description: s.description,
+          is_work_day: s.is_work_day,
+          version: s.version,
+        }));
       }
-      // 2) Mine: new → POST, existing dirty → PATCH
-      for (const s of mine) {
-        if (s._new) {
-          await api.postShift({
-            date: day.date,
-            user_name: me,
-            start_time: s.start_time,
-            end_time: s.end_time,
-            description: s.description,
-            is_work_day: s.is_work_day,
-          });
-        } else if (s._dirty) {
-          await api.patchShift(s.id, {
-            start_time: s.start_time,
-            end_time: s.end_time,
-            description: s.description,
-            is_work_day: s.is_work_day,
-            version: s.version,
-          });
-        }
-      }
-      // 3) NONE marker sync
-      if (noOne && !noneShift) {
-        await api.postShift({ date: day.date, user_name: 'NONE' });
-      } else if (!noOne && noneShift) {
-        await api.deleteShift(noneShift.id, noneShift.version);
-      }
+    }
+    if (noOne && !noneShift) {
+      ops.push(api.postShift({ date: day.date, user_name: 'NONE' }));
+    } else if (!noOne && noneShift) {
+      ops.push(api.deleteShift(noneShift.id, noneShift.version));
+    }
 
+    if (ops.length === 0) {
+      setBusy(false);
+      onClose();
+      return;
+    }
+
+    try {
+      await Promise.all(ops);
       qc.invalidateQueries({ queryKey: ['week'] });
       setToast('Сохранено');
       onClose();
