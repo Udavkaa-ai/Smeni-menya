@@ -7,6 +7,7 @@ import {
   computeDayCoverage, intervalLabel, minToTime,
   findIntraUserConflicts, timesOverlap,
 } from '../utils/format.js';
+import TimeStepper from './TimeStepper.jsx';
 
 function newDraft(kind = 'duty', start = '09:00', end = '18:00') {
   return {
@@ -287,17 +288,9 @@ export default function DayModal({ day, onClose }) {
                   aria-label="Удалить смену"
                 >×</button>
               </div>
-              <div className="time-row">
-                <input
-                  type="time"
-                  value={s.start_time || ''}
-                  onChange={(e) => updDuty(idx, { start_time: e.target.value })}
-                />
-                <input
-                  type="time"
-                  value={s.end_time || ''}
-                  onChange={(e) => updDuty(idx, { end_time: e.target.value })}
-                />
+              <div className="time-row stack">
+                <TimeStepper value={s.start_time || ''} onChange={(v) => updDuty(idx, { start_time: v })} ariaLabel="начало" />
+                <TimeStepper value={s.end_time || ''}   onChange={(v) => updDuty(idx, { end_time: v })}   ariaLabel="конец" />
               </div>
               <textarea
                 value={s.description || ''}
@@ -332,17 +325,9 @@ export default function DayModal({ day, onClose }) {
                   aria-label="Удалить"
                 >×</button>
               </div>
-              <div className="time-row">
-                <input
-                  type="time"
-                  value={s.start_time || ''}
-                  onChange={(e) => updWork(idx, { start_time: e.target.value })}
-                />
-                <input
-                  type="time"
-                  value={s.end_time || ''}
-                  onChange={(e) => updWork(idx, { end_time: e.target.value })}
-                />
+              <div className="time-row stack">
+                <TimeStepper value={s.start_time || ''} onChange={(v) => updWork(idx, { start_time: v })} ariaLabel="начало" />
+                <TimeStepper value={s.end_time || ''}   onChange={(v) => updWork(idx, { end_time: v })}   ariaLabel="конец" />
               </div>
             </div>
           ))}
@@ -372,17 +357,9 @@ export default function DayModal({ day, onClose }) {
                   aria-label="Удалить"
                 >×</button>
               </div>
-              <div className="time-row">
-                <input
-                  type="time"
-                  value={s.start_time || ''}
-                  onChange={(e) => updOther(idx, { start_time: e.target.value })}
-                />
-                <input
-                  type="time"
-                  value={s.end_time || ''}
-                  onChange={(e) => updOther(idx, { end_time: e.target.value })}
-                />
+              <div className="time-row stack">
+                <TimeStepper value={s.start_time || ''} onChange={(v) => updOther(idx, { start_time: v })} ariaLabel="начало" />
+                <TimeStepper value={s.end_time || ''}   onChange={(v) => updOther(idx, { end_time: v })}   ariaLabel="конец" />
               </div>
             </div>
           ))}

@@ -52,6 +52,14 @@ async function ensureFreshClientData() {
 }
 
 (async () => {
+  // Kick the SW to check for updates on every page load — helps users
+  // whose browser would otherwise sit on a stale precached bundle.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      regs.forEach((r) => { try { r.update(); } catch {} });
+    }).catch(() => {});
+  }
+
   const needsReload = await ensureFreshClientData();
   if (needsReload) {
     document.getElementById('root').innerHTML = `

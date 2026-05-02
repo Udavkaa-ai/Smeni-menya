@@ -22,6 +22,7 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
   // press state — used to distinguish tap from long-press from drag.
   // We use Pointer Events so touch and mouse don't both fire on the same gesture.
   const press = useRef({ timer: null, fired: false, x: 0, y: 0, pointerId: null });
+  const lastTap = useRef(0);
   const allShifts = day.shifts || [];
 
   const isDuty = (s) => s.kind !== 'work' && s.kind !== 'other';
@@ -81,7 +82,13 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
     clearTimeout(press.current.timer);
     const wasLongPress = press.current.fired;
     press.current.pointerId = null;
-    if (!wasLongPress) onTap?.();
+    if (wasLongPress) return;
+    // Belt-and-suspenders: ignore taps that arrive within 350ms of the
+    // previous one (some platforms still synthesize duplicate events).
+    const now = Date.now();
+    if (now - lastTap.current < 350) return;
+    lastTap.current = now;
+    onTap?.();
   }
   function handleCancel() {
     clearTimeout(press.current.timer);

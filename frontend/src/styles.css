@@ -165,6 +165,9 @@ textarea { resize: vertical; min-height: 90px; }
   border: 1px solid var(--border);
   transition: transform .08s ease, box-shadow .15s ease, opacity .15s ease;
   user-select: none;
+  /* Prevent the browser from synthesizing duplicate mouse events from a
+     touch tap (the source of the stale double-fire-opens-modal bug). */
+  touch-action: manipulation;
 }
 .card:active { transform: scale(0.985); box-shadow: var(--shadow-md); }
 .card .card-content {
@@ -792,6 +795,40 @@ textarea { resize: vertical; min-height: 90px; }
 }
 
 .time-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.time-row.stack { display: flex; flex-direction: column; gap: 8px; }
+
+/* Tap-friendly time stepper used in DayModal — replaces native clock UI. */
+.time-stepper {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  background: var(--bg-2);
+  border-radius: 14px;
+  border: 1.5px solid var(--border);
+}
+.time-stepper .ts-btn {
+  background: #fff;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--fg-2);
+  min-width: 44px;
+  touch-action: manipulation;
+}
+.time-stepper .ts-btn.big { font-size: 13px; }
+.time-stepper .ts-btn:active { transform: scale(0.96); background: var(--bg); }
+.time-stepper .ts-display {
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  letter-spacing: 0.02em;
+  color: var(--fg);
+}
 
 /* BUTTONS */
 .btn {
