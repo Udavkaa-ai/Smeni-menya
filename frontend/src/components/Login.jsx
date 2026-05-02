@@ -20,8 +20,16 @@ export default function Login({ onLoggedIn }) {
       localStorage.setItem(LAST_USER_KEY, who);
       setSession(token, who);
       onLoggedIn?.(who);
-    } catch {
-      setError('Неверный логин или пароль');
+    } catch (err) {
+      if (err.status === 401) {
+        setError('Неверный логин или пароль');
+      } else if (err.status === 502 || err.status === 504) {
+        setError('Сервер не отвечает (' + err.status + '). Возможно, ещё деплоится — попробуй через минуту.');
+      } else if (err.message === 'Failed to fetch' || !err.status) {
+        setError('Нет связи с сервером. Проверь интернет.');
+      } else {
+        setError('Ошибка: ' + (err.data?.error || err.message || 'неизвестная'));
+      }
     } finally {
       setBusy(false);
     }
