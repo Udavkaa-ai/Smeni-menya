@@ -14,14 +14,15 @@ FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Defaults — override in compose / Railway
+# Defaults — override via Railway / docker-compose env.
+# Default to docker-compose's "backend" service over private HTTP.
 ENV BACKEND_HOST=backend:8080
+ENV BACKEND_PROTO=http
+ENV BACKEND_HOST_HEADER=backend
 ENV PORT=80
-# Limit envsubst to OUR vars so nginx vars like $host are not touched.
-ENV NGINX_ENVSUBST_TEMPLATE_VARS='${BACKEND_HOST} ${PORT}'
 
-# Honor Railway's $PORT
-RUN sed -i 's/listen 80;/listen ${PORT};/' /etc/nginx/templates/default.conf.template
+# Restrict envsubst to OUR vars so nginx vars ($host, $scheme, etc.) are not touched.
+ENV NGINX_ENVSUBST_TEMPLATE_VARS='${BACKEND_HOST} ${BACKEND_PROTO} ${BACKEND_HOST_HEADER} ${PORT}'
 
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

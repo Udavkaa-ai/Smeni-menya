@@ -48,6 +48,8 @@ services:
       - backend
     environment:
       BACKEND_HOST: backend:8080
+      BACKEND_PROTO: http
+      BACKEND_HOST_HEADER: backend
     ports:
       - "8081:80"
 
