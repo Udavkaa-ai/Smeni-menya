@@ -168,8 +168,11 @@ textarea { resize: vertical; min-height: 90px; }
 }
 .card:active { transform: scale(0.985); box-shadow: var(--shadow-md); }
 .card .card-content {
-  display: flex; flex-direction: column; gap: 10px;
+  display: flex; flex-direction: column; gap: 6px;
 }
+.card.expanded { padding: 10px 22px 12px; }
+.card.expanded .row1 { margin-bottom: 0; }
+.card.expanded .shifts { gap: 4px; }
 
 /* Vertical work bars on left/right edges of the card.
    Show each user's "основная работа" intervals at proportional positions
@@ -222,6 +225,26 @@ textarea { resize: vertical; min-height: 90px; }
     #EF4444 4px,
     #FCA5A5 4px,
     #FCA5A5 8px
+  );
+}
+/* Suggest states: faded versions of the responsible user's color
+   so it's obvious "this slot is waiting for X". */
+.tl-seg.tl-suggest_sveta {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(111, 207, 151, 0.45),
+    rgba(111, 207, 151, 0.45) 5px,
+    rgba(111, 207, 151, 0.20) 5px,
+    rgba(111, 207, 151, 0.20) 10px
+  );
+}
+.tl-seg.tl-suggest_maria {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(107, 164, 240, 0.45),
+    rgba(107, 164, 240, 0.45) 5px,
+    rgba(107, 164, 240, 0.20) 5px,
+    rgba(107, 164, 240, 0.20) 10px
   );
 }
 .day-timeline-axis {
@@ -284,11 +307,69 @@ textarea { resize: vertical; min-height: 90px; }
 
 /* Subtle hint at the bottom of an expanded card that another tap edits */
 .card-edit-hint {
-  margin-top: 4px;
-  font-size: 11px; color: var(--muted);
+  margin-top: 2px;
+  font-size: 10px; color: var(--muted);
   letter-spacing: 0.04em;
   text-align: center;
-  opacity: 0.7;
+  opacity: 0.6;
+}
+
+/* Suggestion strips on day card: "Маша/Света должна взять HH:MM-HH:MM" */
+.suggest-list {
+  display: flex; flex-direction: column; gap: 4px;
+  margin-left: 4px;
+}
+.suggest-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1.5px dashed var(--border);
+  background: var(--bg-2);
+  color: var(--fg-2);
+}
+.suggest-row b { font-weight: 700; }
+.suggest-row.sveta { background: linear-gradient(135deg, var(--bg-2), var(--color-sveta-bg)); }
+.suggest-row.maria { background: linear-gradient(135deg, var(--bg-2), var(--color-maria-bg)); }
+
+/* Intra-user conflict warning on card */
+.self-conflict {
+  margin: 2px 4px 0;
+  padding: 8px 12px;
+  background: #FEE2E2;
+  border: 1px solid #FCA5A5;
+  border-radius: 10px;
+  color: #B91C1C;
+  font-size: 13px; font-weight: 600;
+}
+
+/* Same warning shape, bigger, for inside the modal */
+.self-conflict-warning {
+  padding: 12px 14px;
+  background: #FEE2E2;
+  border: 1.5px solid #FCA5A5;
+  border-radius: 14px;
+  color: #B91C1C;
+  font-size: 14px; font-weight: 600;
+  line-height: 1.45;
+}
+
+/* "Other" busy entries — same striped pattern as work but distinct color tint */
+.my-shift.busy {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--bg-2),
+    var(--bg-2) 6px,
+    rgba(140, 132, 168, 0.10) 6px,
+    rgba(140, 132, 168, 0.10) 12px
+  );
+}
+
+/* Suggestion CTA — slight tint distinguishing from neutral free-gap button */
+.free-gap-btn.suggest {
+  border-style: solid;
+  border-color: var(--border);
+  background: linear-gradient(135deg, #fff, var(--color-none-bg));
 }
 
 .card.tone-sveta { background: linear-gradient(135deg, #fff 60%, var(--color-sveta-bg)); }
@@ -518,12 +599,15 @@ textarea { resize: vertical; min-height: 90px; }
 }
 
 /* Work shifts (main job) — visually muted, striped pattern */
-.shift-row.work-row {
+.shift-row.work-row,
+.shift-row.busy-row {
   font-style: italic;
   color: var(--fg-2);
 }
-.shift-row.work-row .who-name { font-weight: 600; }
-.shift-row.work-row .time-pill {
+.shift-row.work-row .who-name,
+.shift-row.busy-row .who-name { font-weight: 600; }
+.shift-row.work-row .time-pill,
+.shift-row.busy-row .time-pill {
   background: repeating-linear-gradient(
     -45deg,
     rgba(255,255,255,0.85),

@@ -4,7 +4,8 @@ import { api, getUser } from '../api/client.js';
 import { useWeekStore } from '../store/useWeekStore.js';
 import {
   ruDateLong, NAMES, timeRange,
-  computeDayCoverage, intervalLabel, minToTime
+  computeDayCoverage, intervalLabel, minToTime,
+  findIntraUserConflicts, timesOverlap,
 } from '../utils/format.js';
 
 function newDraft(kind = 'duty', start = '09:00', end = '18:00') {
@@ -25,20 +26,27 @@ export default function DayModal({ day, onClose }) {
   const setToast = useWeekStore((s) => s.setToast);
   const qc = useQueryClient();
 
+  const isDutyKind = (s) => s.kind !== 'work' && s.kind !== 'other';
+
   const initialMineDuty = (day.shifts || [])
-    .filter((s) => s.user_name === me && s.kind !== 'work')
-    .map((s) => ({ ...s, kind: s.kind || 'duty' }));
+    .filter((s) => s.user_name === me && isDutyKind(s))
+    .map((s) => ({ ...s, kind: 'duty' }));
   const initialMineWork = (day.shifts || [])
     .filter((s) => s.user_name === me && s.kind === 'work')
     .map((s) => ({ ...s }));
+  const initialMineOther = (day.shifts || [])
+    .filter((s) => s.user_name === me && s.kind === 'other')
+    .map((s) => ({ ...s }));
 
   const theirShifts = (day.shifts || []).filter((s) => s.user_name === other);
-  const theirDuty = theirShifts.filter((s) => s.kind !== 'work');
-  const theirWork = theirShifts.filter((s) => s.kind === 'work');
+  const theirDuty  = theirShifts.filter((s) => isDutyKind(s));
+  const theirWork  = theirShifts.filter((s) => s.kind === 'work');
+  const theirOther = theirShifts.filter((s) => s.kind === 'other');
   const noneShift = (day.shifts || []).find((s) => s.user_name === 'NONE');
 
   const [duty, setDuty] = useState(initialMineDuty);
   const [work, setWork] = useState(initialMineWork);
+  const [otherList, setOtherList] = useState(initialMineOther);
   const [removed, setRemoved] = useState([]);
   const [noOne, setNoOne] = useState(!!noneShift);
   const [busy, setBusy] = useState(false);
@@ -52,9 +60,13 @@ export default function DayModal({ day, onClose }) {
     ...theirShifts,
     ...duty.map((s) => ({ ...s, user_name: me, kind: 'duty' })),
     ...work.map((s) => ({ ...s, user_name: me, kind: 'work' })),
+    ...otherList.map((s) => ({ ...s, user_name: me, kind: 'other' })),
     ...(noOne ? [{ user_name: 'NONE' }] : []),
   ];
-  const { free, blocked } = computeDayCoverage(previewShifts);
+  const { free, blocked, suggestSveta, suggestMaria } = computeDayCoverage(previewShifts);
+  const mySuggest = me === 'SVETA' ? suggestSveta : suggestMaria;
+  const otherSuggest = me === 'SVETA' ? suggestMaria : suggestSveta;
+  const selfConflicts = findIntraUserConflicts(previewShifts).filter((c) => c.user_name === me);
 
   function patchAt(setter) {
     return (idx, patch) =>
@@ -69,10 +81,12 @@ export default function DayModal({ day, onClose }) {
       });
   }
 
-  const updDuty = patchAt(setDuty);
-  const updWork = patchAt(setWork);
-  const rmDuty = removeAt(setDuty);
-  const rmWork = removeAt(setWork);
+  const updDuty  = patchAt(setDuty);
+  const updWork  = patchAt(setWork);
+  const updOther = patchAt(setOtherList);
+  const rmDuty   = removeAt(setDuty);
+  const rmWork   = removeAt(setWork);
+  const rmOther  = removeAt(setOtherList);
 
   function takeFreeGap(gap) {
     setDuty((arr) => [
@@ -129,6 +143,21 @@ export default function DayModal({ day, onClose }) {
           start_time: s.start_time, end_time: s.end_time,
           description: '', is_work_day: true,
           kind: 'work', version: s.version,
+        }));
+      }
+    }
+    for (const s of otherList) {
+      if (s._new) {
+        ops.push(api.postShift({
+          date: day.date, user_name: me, kind: 'other',
+          start_time: s.start_time, end_time: s.end_time,
+          description: '', is_work_day: false,
+        }));
+      } else if (s._dirty) {
+        ops.push(api.patchShift(s.id, {
+          start_time: s.start_time, end_time: s.end_time,
+          description: '', is_work_day: false,
+          kind: 'other', version: s.version,
         }));
       }
     }
@@ -322,9 +351,93 @@ export default function DayModal({ day, onClose }) {
             className="btn ghost full add-shift"
             onClick={() => setWork((a) => [...a, newDraft('work', '09:00', '18:00')])}
           >
-            + Добавить занятость
+            + Добавить «основная работа»
           </button>
         </div>
+
+        <div>
+          <span className="label">Моё другое (личные дела)</span>
+          {otherList.length === 0 && (
+            <div className="empty-mine">Не отмечено</div>
+          )}
+          {otherList.map((s, idx) => (
+            <div key={s.id || s._localId} className={`my-shift busy ${myCls}`}>
+              <div className="my-shift-head">
+                <span className={`dot ${myCls}`} />
+                <b>другое</b>
+                <button
+                  type="button"
+                  className="x-btn"
+                  onClick={() => rmOther(idx)}
+                  aria-label="Удалить"
+                >×</button>
+              </div>
+              <div className="time-row">
+                <input
+                  type="time"
+                  value={s.start_time || ''}
+                  onChange={(e) => updOther(idx, { start_time: e.target.value })}
+                />
+                <input
+                  type="time"
+                  value={s.end_time || ''}
+                  onChange={(e) => updOther(idx, { end_time: e.target.value })}
+                />
+              </div>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="btn ghost full add-shift"
+            onClick={() => setOtherList((a) => [...a, newDraft('other', '09:00', '18:00')])}
+          >
+            + Добавить «другое»
+          </button>
+        </div>
+
+        {selfConflicts.length > 0 && (
+          <div className="self-conflict-warning">
+            ⚠ У вас одновременно дежурство и занятость:
+            {selfConflicts.map((c, i) => (
+              <div key={i}>
+                · {c.duty.start_time}–{c.duty.end_time} (дежурство) ↔ {c.busy.start_time}–{c.busy.end_time} (
+                  {c.busy.kind === 'work' ? 'работа' : 'другое'})
+              </div>
+            ))}
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
+              Уберите одно из них — нельзя быть в двух местах одновременно.
+            </div>
+          </div>
+        )}
+
+        {otherSuggest.length > 0 && (
+          <div>
+            <span className="label">{NAMES[other]} занята — кто-то должен взять</span>
+            {otherSuggest.map((g, i) => (
+              <button
+                key={i}
+                type="button"
+                className="free-gap-btn suggest"
+                onClick={() => setDuty((a) => [...a, newDraft('duty', minToTime(g.start), minToTime(g.end))])}
+              >
+                <span>{intervalLabel(g)} — {NAMES[other]} занята</span>
+                <span className="take-pill">+ беру</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {mySuggest.length > 0 && (
+          <div>
+            <span className="label">Я занята — {NAMES[other]} могла бы взять</span>
+            {mySuggest.map((g, i) => (
+              <div key={i} className="auto-blocked-row">
+                <span className={`dot ${other === 'SVETA' ? 'sveta' : 'maria'}`} />
+                <span>Свободно для {NAMES[other]}</span>
+                <span className="time-pill">{intervalLabel(g)}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         <label className="checkbox-row">
           <input

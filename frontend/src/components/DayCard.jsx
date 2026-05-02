@@ -2,7 +2,7 @@ import React, { useRef } from 'react';
 import {
   NAMES, timeRange, timesOverlap,
   computeDayCoverage, intervalLabel, minToTime,
-  buildTimelineSegments, workIntervalsFor,
+  buildTimelineSegments, workIntervalsFor, findIntraUserConflicts,
 } from '../utils/format.js';
 
 const DOW = ['ВС','ПН','ВТ','СР','ЧТ','ПТ','СБ'];
@@ -19,15 +19,20 @@ function sortShifts(arr) {
 }
 
 export default function DayCard({ day, isToday, isPast, expanded = true, onTap, onLongPress }) {
-  const press = useRef({ timer: null, fired: false, x: 0, y: 0 });
+  // press state — used to distinguish tap from long-press from drag.
+  // We use Pointer Events so touch and mouse don't both fire on the same gesture.
+  const press = useRef({ timer: null, fired: false, x: 0, y: 0, pointerId: null });
   const allShifts = day.shifts || [];
 
-  const sveta = sortShifts(allShifts.filter((s) => s.user_name === 'SVETA' && s.kind !== 'work'));
-  const maria = sortShifts(allShifts.filter((s) => s.user_name === 'MARIA' && s.kind !== 'work'));
+  const isDuty = (s) => s.kind !== 'work' && s.kind !== 'other';
+  const sveta = sortShifts(allShifts.filter((s) => s.user_name === 'SVETA' && isDuty(s)));
+  const maria = sortShifts(allShifts.filter((s) => s.user_name === 'MARIA' && isDuty(s)));
   const work  = sortShifts(allShifts.filter((s) => s.kind === 'work'));
+  const other = sortShifts(allShifts.filter((s) => s.kind === 'other'));
   const none  = allShifts.find((s) => s.user_name === 'NONE');
 
-  const conflict = (() => {
+  // Cross-user duty overlap.
+  const dutyClash = (() => {
     const items = [...sveta, ...maria];
     for (let i = 0; i < items.length; i++) {
       for (let j = i + 1; j < items.length; j++) {
@@ -36,8 +41,11 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
     }
     return false;
   })();
+  // Intra-user: own duty overlapping own work/other (impossible to be in two places).
+  const selfConflicts = findIntraUserConflicts(allShifts);
+  const conflict = dutyClash || selfConflicts.length > 0;
 
-  const { free, blocked } = computeDayCoverage(allShifts);
+  const { free, blocked, suggestSveta, suggestMaria } = computeDayCoverage(allShifts);
   const segments = buildTimelineSegments(allShifts);
   const svetaWork = workIntervalsFor(allShifts, 'SVETA');
   const mariaWork = workIntervalsFor(allShifts, 'MARIA');
@@ -49,10 +57,12 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
   else if (none || blocked.length) cardTone = 'none';
 
   function handleStart(e) {
-    const p = e.touches ? e.touches[0] : e;
+    if (press.current.pointerId != null) return;       // ignore extra fingers
+    if (e.target.closest('button, input, textarea, label')) return; // not interactive
+    press.current.pointerId = e.pointerId;
     press.current.fired = false;
-    press.current.x = p.clientX;
-    press.current.y = p.clientY;
+    press.current.x = e.clientX;
+    press.current.y = e.clientY;
     press.current.timer = setTimeout(() => {
       press.current.fired = true;
       try { navigator.vibrate?.(15); } catch {}
@@ -60,37 +70,39 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
     }, 500);
   }
   function handleMove(e) {
-    const p = e.touches ? e.touches[0] : e;
-    if (Math.abs(p.clientX - press.current.x) > 10 || Math.abs(p.clientY - press.current.y) > 10) {
+    if (press.current.pointerId !== e.pointerId) return;
+    if (Math.abs(e.clientX - press.current.x) > 10 || Math.abs(e.clientY - press.current.y) > 10) {
       clearTimeout(press.current.timer);
+      press.current.pointerId = null;
     }
   }
-  function handleEnd() {
+  function handleEnd(e) {
+    if (press.current.pointerId !== e.pointerId) return;
     clearTimeout(press.current.timer);
-    if (!press.current.fired) onTap?.();
+    const wasLongPress = press.current.fired;
+    press.current.pointerId = null;
+    if (!wasLongPress) onTap?.();
   }
   function handleCancel() {
     clearTimeout(press.current.timer);
+    press.current.pointerId = null;
   }
 
   const dt = new Date(day.date + 'T00:00:00Z');
   const dow = DOW[dt.getUTCDay()];
   const dnum = dt.getUTCDate();
 
-  const totalShifts = sveta.length + maria.length + work.length + (none ? 1 : 0);
+  const totalShifts = sveta.length + maria.length + work.length + other.length + (none ? 1 : 0);
   const isFullyFree = free.length === 1 && free[0].start === 0 && free[0].end === 24 * 60;
 
   return (
     <div
       className={`card tone-${cardTone} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''} ${conflict ? 'conflict' : ''} ${expanded ? 'expanded' : 'collapsed'}`}
-      onTouchStart={handleStart}
-      onTouchMove={handleMove}
-      onTouchEnd={handleEnd}
-      onTouchCancel={handleCancel}
-      onMouseDown={handleStart}
-      onMouseMove={handleMove}
-      onMouseUp={handleEnd}
-      onMouseLeave={handleCancel}
+      onPointerDown={handleStart}
+      onPointerMove={handleMove}
+      onPointerUp={handleEnd}
+      onPointerCancel={handleCancel}
+      onPointerLeave={handleCancel}
     >
       <WorkVBar intervals={svetaWork} side="left" cls="sveta" label="Света — основная работа" />
       <WorkVBar intervals={mariaWork} side="right" cls="maria" label="Мария — основная работа" />
@@ -107,8 +119,8 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
 
         {!expanded && (
           <CompactSummary
-            sveta={sveta} maria={maria} work={work} none={!!none}
-            blocked={blocked} free={free}
+            sveta={sveta} maria={maria} work={work} other={other}
+            none={!!none} blocked={blocked}
           />
         )}
 
@@ -123,13 +135,48 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
           <div className="shifts">
             {sveta.map((s) => <ShiftRow key={s.id} shift={s} />)}
             {maria.map((s) => <ShiftRow key={s.id} shift={s} />)}
-            {work.map((s) => <WorkRow key={s.id} shift={s} />)}
+            {work.map((s) => <BusyRow key={s.id} shift={s} kind="work" />)}
+            {other.map((s) => <BusyRow key={s.id} shift={s} kind="other" />)}
             {none && (
               <div className="shift-row none-row">
                 <span className="dot none" />
                 <span className="who-name">Никто из нас не сможет</span>
               </div>
             )}
+          </div>
+        )}
+
+        {expanded && selfConflicts.length > 0 && (
+          <div className="self-conflict">
+            {selfConflicts.map((c, i) => (
+              <div key={i}>
+                ⚠ {NAMES[c.user_name]} одновременно дежурит и занята —
+                {' '}{c.duty.start_time}–{c.duty.end_time} ↔ {c.busy.start_time}–{c.busy.end_time}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {expanded && suggestMaria.length > 0 && (
+          <div className="suggest-list">
+            {suggestMaria.map((s, i) => (
+              <div key={i} className="suggest-row maria">
+                <span className="dot maria" />
+                <b>Маша</b> может взять
+                <span className="time-pill">{intervalLabel(s)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {expanded && suggestSveta.length > 0 && (
+          <div className="suggest-list">
+            {suggestSveta.map((s, i) => (
+              <div key={i} className="suggest-row sveta">
+                <span className="dot sveta" />
+                <b>Света</b> может взять
+                <span className="time-pill">{intervalLabel(s)}</span>
+              </div>
+            ))}
           </div>
         )}
 
@@ -165,15 +212,14 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
   );
 }
 
-function CompactSummary({ sveta, maria, work, none, blocked, free }) {
+function CompactSummary({ sveta, maria, work, other, none, blocked }) {
   const chips = [];
   if (sveta.length) chips.push({ cls: 'sveta', label: NAMES.SVETA, count: sveta.length });
   if (maria.length) chips.push({ cls: 'maria', label: NAMES.MARIA, count: maria.length });
   if (none) chips.push({ cls: 'none', label: 'Никто' });
-  if (!none && blocked.length) {
-    chips.push({ cls: 'none', label: 'Никто', count: blocked.length });
-  }
-  if (work.length) chips.push({ cls: 'work', label: 'работа', count: work.length });
+  if (!none && blocked.length) chips.push({ cls: 'none', label: 'Никто', count: blocked.length });
+  if (work.length)  chips.push({ cls: 'busy', label: 'работа', count: work.length });
+  if (other.length) chips.push({ cls: 'busy', label: 'другое', count: other.length });
 
   if (chips.length === 0) {
     return (
@@ -186,7 +232,7 @@ function CompactSummary({ sveta, maria, work, none, blocked, free }) {
     <div className="compact-summary">
       {chips.map((c, i) => (
         <span key={i} className={`compact-chip chip-${c.cls}`}>
-          <span className={`dot ${c.cls === 'work' ? 'free' : c.cls}`} />
+          <span className={`dot ${c.cls === 'busy' ? 'free' : c.cls}`} />
           {c.label}
           {c.count > 1 ? ` ×${c.count}` : ''}
         </span>
@@ -251,13 +297,14 @@ function ShiftRow({ shift }) {
   );
 }
 
-function WorkRow({ shift }) {
+function BusyRow({ shift, kind }) {
   const cls = shiftClass(shift.user_name);
   const tr = timeRange(shift.start_time, shift.end_time);
+  const label = kind === 'work' ? 'основная работа' : 'другое';
   return (
-    <div className={`shift-row work-row ${cls}-row`}>
+    <div className={`shift-row busy-row ${cls}-row`}>
       <span className={`dot ${cls}`} />
-      <span className="who-name">{NAMES[shift.user_name]}: основная работа</span>
+      <span className="who-name">{NAMES[shift.user_name]}: {label}</span>
       {tr && <span className="time-pill">{tr}</span>}
     </div>
   );

@@ -47,13 +47,16 @@ ALTER TABLE shifts DROP CONSTRAINT IF EXISTS shifts_date_user_name_key;
 -- Keep NONE marker globally unique per date.
 CREATE UNIQUE INDEX IF NOT EXISTS shifts_none_unique ON shifts(date) WHERE user_name = 'NONE';
 
--- Shifts now have a kind: 'duty' (caregiving slot) or 'work' (busy at main job).
+-- Shifts have a kind: 'duty' (caregiving), 'work' (main job, busy),
+-- or 'other' (any other personal busy time, no details required).
 -- Default is 'duty' for existing rows.
 ALTER TABLE shifts ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'duty';
+-- Drop any older check constraint so we can broaden it.
+ALTER TABLE shifts DROP CONSTRAINT IF EXISTS shifts_kind_check;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifts_kind_check') THEN
-    ALTER TABLE shifts ADD CONSTRAINT shifts_kind_check CHECK (kind IN ('duty','work'));
+    ALTER TABLE shifts ADD CONSTRAINT shifts_kind_check CHECK (kind IN ('duty','work','other'));
   END IF;
 END $$;
 

@@ -184,7 +184,7 @@ app.post('/shift', authMiddleware, async (req, res) => {
   if (!['SVETA', 'MARIA', 'NONE'].includes(user_name)) {
     return res.status(400).json({ error: 'bad_user' });
   }
-  if (!['duty', 'work'].includes(kind)) {
+  if (!['duty', 'work', 'other'].includes(kind)) {
     return res.status(400).json({ error: 'bad_kind' });
   }
   if (user_name !== req.user.name && user_name !== 'NONE') {
@@ -244,7 +244,7 @@ app.patch('/shift/:id', authMiddleware, async (req, res) => {
   if (!Number.isInteger(version) || version < 1) {
     return res.status(400).json({ error: 'bad_version' });
   }
-  if (kind !== undefined && !['duty', 'work'].includes(kind)) {
+  if (kind !== undefined && !['duty', 'work', 'other'].includes(kind)) {
     return res.status(400).json({ error: 'bad_kind' });
   }
 
