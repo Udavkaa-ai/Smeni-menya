@@ -11,17 +11,18 @@ export default defineConfig({
       manifest: {
         name: 'Сменимся',
         short_name: 'Сменимся',
-        description: 'График дежурств для двоих',
-        theme_color: '#4CAF50',
-        background_color: '#ffffff',
+        description: 'График дежурств для Светы и Марии',
+        theme_color: '#B19CE9',
+        background_color: '#F5F1FB',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',
         scope: '/',
+        lang: 'ru',
         icons: [
-          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
         ]
       },
       strategies: 'injectManifest',

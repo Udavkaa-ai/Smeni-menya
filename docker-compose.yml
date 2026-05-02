@@ -31,6 +31,8 @@ services:
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@smeni-menya.local}
       SVETA_PASSWORD: ${SVETA_PASSWORD:-sveta123}
       MARIA_PASSWORD: ${MARIA_PASSWORD:-maria123}
+    expose:
+      - "8080"
     ports:
       - "8080:8080"
 
@@ -38,11 +40,14 @@ services:
     build:
       context: ./frontend
       args:
+        # In docker-compose, frontend nginx proxies /api and /ws to backend.
         VITE_API_BASE: /api
         VITE_WS_BASE: ""
     restart: unless-stopped
     depends_on:
       - backend
+    environment:
+      BACKEND_HOST: backend:8080
     ports:
       - "8081:80"
 

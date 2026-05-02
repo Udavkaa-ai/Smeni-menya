@@ -101,9 +101,12 @@ export default function WeekView({ live }) {
   return (
     <>
       <div className="weeknav">
-        <button className="iconbtn" onClick={prev} aria-label="Предыдущая неделя">‹</button>
-        <div onClick={goToday} className="range">{rangeLabel(weekStart)}</div>
-        <button className="iconbtn" onClick={next} aria-label="Следующая неделя">›</button>
+        <button className="navbtn" onClick={prev} aria-label="Предыдущая неделя">‹</button>
+        <div className="range" onClick={goToday}>
+          {rangeLabel(weekStart)}
+          <small>нажмите, чтобы вернуться к сегодня</small>
+        </div>
+        <button className="navbtn" onClick={next} aria-label="Следующая неделя">›</button>
       </div>
 
       {incoming && (
@@ -128,7 +131,7 @@ export default function WeekView({ live }) {
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        {isLoading && <div style={{ color: '#6b7280', textAlign: 'center', padding: 20 }}>Загрузка…</div>}
+        {isLoading && <div className="loading">Загружаю неделю…</div>}
         {days.map((d) => (
           <DayCard
             key={d.id}

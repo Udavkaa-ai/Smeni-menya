@@ -101,12 +101,9 @@ Frontend (Vite) проксирует `/api` и `/ws` на `localhost:8080`.
 
 ## Деплой на Railway
 
-1. Создайте Postgres-плагин — он даст `DATABASE_URL`.
-2. Backend service: укажите репозиторий, `backend/Dockerfile`, переменные:
-   - `DATABASE_URL` (от Railway)
-   - `JWT_SECRET`
-   - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`
-   - `SVETA_PASSWORD`, `MARIA_PASSWORD`
-3. Frontend: задеплойте `frontend/Dockerfile` (Railway/Vercel).
-   - При сборке передайте `VITE_API_BASE=https://<your-backend>` и
-     `VITE_WS_BASE=wss://<your-backend>/ws`.
+Подробная пошаговая инструкция — см. [`DEPLOY.md`](./DEPLOY.md).
+
+Кратко:
+1. Postgres-сервис в Railway
+2. Backend-сервис: root `backend/`, Dockerfile, env: `DATABASE_URL`, `JWT_SECRET`, пароли, опц. VAPID
+3. Frontend-сервис: root `frontend/`, Dockerfile, build-args `VITE_API_BASE=/api` и `VITE_WS_BASE=`, env `BACKEND_HOST`
