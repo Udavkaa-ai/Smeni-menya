@@ -46,6 +46,8 @@ export const api = {
     request(`/shift/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteShift: (id, version) =>
     request(`/shift/${id}?version=${version}`, { method: 'DELETE' }),
+  transferShift: (id) =>
+    request(`/shift/${id}/transfer`, { method: 'POST', body: '{}' }),
   createSwap: (from_date, to_date) =>
     request('/swap', { method: 'POST', body: JSON.stringify({ from_date, to_date }) }),
   listSwaps: () => request('/swap'),

@@ -60,6 +60,13 @@ function buildMessage(p) {
         title: 'Запрос на обмен',
         body: `${by} предлагает обмен: ${ruDate(p.from_date)} ↔ ${ruDate(p.to_date)}`
       };
+    case 'transfer_request': {
+      const tr = timeRange(p.start_time, p.end_time);
+      return {
+        title: 'Передача смены',
+        body: `${by} предлагает забрать её смену ${ruDate(p.date)}${tr ? `, ${tr}` : ''}`
+      };
+    }
     case 'shift_accepted':
       return {
         title: 'Обмен принят',

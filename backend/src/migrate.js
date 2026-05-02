@@ -47,6 +47,16 @@ ALTER TABLE shifts DROP CONSTRAINT IF EXISTS shifts_date_user_name_key;
 -- Keep NONE marker globally unique per date.
 CREATE UNIQUE INDEX IF NOT EXISTS shifts_none_unique ON shifts(date) WHERE user_name = 'NONE';
 
+-- Shifts now have a kind: 'duty' (caregiving slot) or 'work' (busy at main job).
+-- Default is 'duty' for existing rows.
+ALTER TABLE shifts ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'duty';
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shifts_kind_check') THEN
+    ALTER TABLE shifts ADD CONSTRAINT shifts_kind_check CHECK (kind IN ('duty','work'));
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS swap_requests (
   id SERIAL PRIMARY KEY,
   from_user TEXT NOT NULL,
@@ -58,6 +68,17 @@ CREATE TABLE IF NOT EXISTS swap_requests (
 );
 
 CREATE INDEX IF NOT EXISTS swap_status_idx ON swap_requests(status);
+
+-- Swap requests have a type: 'swap' (mutual two-day exchange) or
+-- 'transfer' (one-way handover of a single shift).
+ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'swap';
+ALTER TABLE swap_requests ADD COLUMN IF NOT EXISTS shift_id INTEGER;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'swap_requests_type_check') THEN
+    ALTER TABLE swap_requests ADD CONSTRAINT swap_requests_type_check CHECK (type IN ('swap','transfer'));
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS audit_log (
   id SERIAL PRIMARY KEY,

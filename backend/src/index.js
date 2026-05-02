@@ -42,6 +42,7 @@ const formatShift = (r) => ({
   id: r.id,
   date: ymd(r.date),
   user_name: r.user_name,
+  kind: r.kind || 'duty',
   start_time: r.start_time,
   end_time: r.end_time,
   description: r.description || '',
@@ -49,6 +50,18 @@ const formatShift = (r) => ({
   updated_by: r.updated_by,
   updated_at: r.updated_at,
   version: r.version,
+});
+
+const formatSwap = (r) => ({
+  id: r.id,
+  type: r.type || 'swap',
+  shift_id: r.shift_id || null,
+  from_user: r.from_user,
+  to_user: r.to_user,
+  from_date: ymd(r.from_date),
+  to_date: ymd(r.to_date),
+  status: r.status,
+  created_at: r.created_at,
 });
 
 // Detect changes between previous and next shift (both formatted).
@@ -160,6 +173,7 @@ app.post('/shift', authMiddleware, async (req, res) => {
   const {
     date,
     user_name,
+    kind = 'duty',
     start_time = null,
     end_time = null,
     description = '',
@@ -170,6 +184,9 @@ app.post('/shift', authMiddleware, async (req, res) => {
   if (!['SVETA', 'MARIA', 'NONE'].includes(user_name)) {
     return res.status(400).json({ error: 'bad_user' });
   }
+  if (!['duty', 'work'].includes(kind)) {
+    return res.status(400).json({ error: 'bad_kind' });
+  }
   if (user_name !== req.user.name && user_name !== 'NONE') {
     return res.status(403).json({ error: 'cannot_edit_other_user' });
   }
@@ -177,11 +194,12 @@ app.post('/shift', authMiddleware, async (req, res) => {
   try {
     const ins = await query(
       `INSERT INTO shifts
-          (date, user_name, start_time, end_time, description, is_work_day, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+          (date, user_name, kind, start_time, end_time, description, is_work_day, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [
         date,
         user_name,
+        kind,
         start_time || null,
         end_time || null,
         description || '',
@@ -219,11 +237,15 @@ app.patch('/shift/:id', authMiddleware, async (req, res) => {
     end_time = null,
     description = '',
     is_work_day = false,
+    kind,
     version,
   } = req.body || {};
 
   if (!Number.isInteger(version) || version < 1) {
     return res.status(400).json({ error: 'bad_version' });
+  }
+  if (kind !== undefined && !['duty', 'work'].includes(kind)) {
+    return res.status(400).json({ error: 'bad_kind' });
   }
 
   try {
@@ -243,15 +265,17 @@ app.patch('/shift/:id', authMiddleware, async (req, res) => {
             end_time    = $2,
             description = $3,
             is_work_day = $4,
-            updated_by  = $5,
+            kind        = COALESCE($5, kind),
+            updated_by  = $6,
             updated_at  = NOW(),
             version     = version + 1
-         WHERE id = $6 RETURNING *`,
+         WHERE id = $7 RETURNING *`,
         [
           start_time || null,
           end_time || null,
           description || '',
           !!is_work_day,
+          kind || null,
           req.user.name,
           id,
         ]
@@ -318,7 +342,8 @@ app.delete('/shift/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// ---------- swap ----------
+// ---------- swap & transfer ----------
+// POST /swap — propose a two-day mutual exchange.
 app.post('/swap', authMiddleware, async (req, res) => {
   const { from_date, to_date } = req.body || {};
   if (!isValidIso(from_date) || !isValidIso(to_date)) {
@@ -329,9 +354,8 @@ app.post('/swap', authMiddleware, async (req, res) => {
   const from_user = req.user.name;
   const to_user = otherUser(from_user);
 
-  // Sanity check: requester should have a shift on from_date.
   const mine = await query(
-    'SELECT 1 FROM shifts WHERE date = $1 AND user_name = $2',
+    `SELECT 1 FROM shifts WHERE date = $1 AND user_name = $2 AND kind = 'duty'`,
     [from_date, from_user]
   );
   if (mine.rowCount === 0) {
@@ -339,20 +363,11 @@ app.post('/swap', authMiddleware, async (req, res) => {
   }
 
   const { rows } = await query(
-    `INSERT INTO swap_requests (from_user, to_user, from_date, to_date)
-     VALUES ($1,$2,$3,$4) RETURNING *`,
+    `INSERT INTO swap_requests (from_user, to_user, from_date, to_date, type)
+     VALUES ($1,$2,$3,$4,'swap') RETURNING *`,
     [from_user, to_user, from_date, to_date]
   );
-  const swap = rows[0];
-  const payload = {
-    id: swap.id,
-    from_user: swap.from_user,
-    to_user: swap.to_user,
-    from_date: ymd(swap.from_date),
-    to_date: ymd(swap.to_date),
-    status: swap.status,
-    created_at: swap.created_at,
-  };
+  const payload = formatSwap(rows[0]);
   broadcast('SWAP_CREATED', payload);
   notifyUser(to_user, {
     type: 'shift_request',
@@ -364,6 +379,44 @@ app.post('/swap', authMiddleware, async (req, res) => {
   res.json(payload);
 });
 
+// POST /shift/:id/transfer — propose to hand a single shift to the other user.
+app.post('/shift/:id/transfer', authMiddleware, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad_id' });
+
+  const cur = await query('SELECT * FROM shifts WHERE id = $1', [id]);
+  if (cur.rowCount === 0) return res.status(404).json({ error: 'not_found' });
+  const shift = cur.rows[0];
+  if (shift.user_name !== req.user.name) {
+    return res.status(403).json({ error: 'not_yours' });
+  }
+  if (shift.kind !== 'duty') {
+    return res.status(400).json({ error: 'only_duty_shifts' });
+  }
+
+  const from_user = req.user.name;
+  const to_user = otherUser(from_user);
+  const dateIso = ymd(shift.date);
+
+  const { rows } = await query(
+    `INSERT INTO swap_requests (from_user, to_user, from_date, to_date, type, shift_id)
+     VALUES ($1,$2,$3,$3,'transfer',$4) RETURNING *`,
+    [from_user, to_user, dateIso, id]
+  );
+  const payload = formatSwap(rows[0]);
+  broadcast('SWAP_CREATED', payload);
+  notifyUser(to_user, {
+    type: 'transfer_request',
+    date: dateIso,
+    start_time: shift.start_time,
+    end_time: shift.end_time,
+    description: shift.description,
+    by: from_user,
+  });
+  audit(from_user, 'TRANSFER_CREATED', payload);
+  res.json(payload);
+});
+
 app.get('/swap', authMiddleware, async (req, res) => {
   const { rows } = await query(
     `SELECT * FROM swap_requests
@@ -372,17 +425,7 @@ app.get('/swap', authMiddleware, async (req, res) => {
       ORDER BY created_at DESC`,
     [req.user.name]
   );
-  res.json(
-    rows.map((r) => ({
-      id: r.id,
-      from_user: r.from_user,
-      to_user: r.to_user,
-      from_date: ymd(r.from_date),
-      to_date: ymd(r.to_date),
-      status: r.status,
-      created_at: r.created_at,
-    }))
-  );
+  res.json(rows.map(formatSwap));
 });
 
 app.post('/swap/:id/respond', authMiddleware, async (req, res) => {
@@ -408,45 +451,58 @@ app.post('/swap/:id/respond', authMiddleware, async (req, res) => {
           `UPDATE swap_requests SET status = 'REJECTED' WHERE id = $1 RETURNING *`,
           [id]
         );
-        return { status: 200, body: { swap: upd.rows[0], shifts: [], removed: [] } };
+        return { status: 200, body: { swap: upd.rows[0], shifts: [] } };
       }
 
+      // ---- TRANSFER ---- //
+      if (swap.type === 'transfer') {
+        const r = await client.query(
+          'SELECT * FROM shifts WHERE id = $1 FOR UPDATE',
+          [swap.shift_id]
+        );
+        if (r.rowCount === 0) return { status: 410, body: { error: 'shift_gone' } };
+        const sh = r.rows[0];
+        if (sh.user_name !== swap.from_user) {
+          return { status: 409, body: { error: 'shift_changed_hands' } };
+        }
+        const u = await client.query(
+          `UPDATE shifts SET user_name = $1, updated_by = $2,
+                            updated_at = NOW(), version = version + 1
+           WHERE id = $3 RETURNING *`,
+          [swap.to_user, req.user.name, sh.id]
+        );
+        const upd = await client.query(
+          `UPDATE swap_requests SET status = 'ACCEPTED' WHERE id = $1 RETURNING *`,
+          [id]
+        );
+        return { status: 200, body: { swap: upd.rows[0], shifts: [u.rows[0]] } };
+      }
+
+      // ---- SWAP ---- //
       const fromDate = ymd(swap.from_date);
       const toDate = ymd(swap.to_date);
-
-      // Lock and load potentially involved shifts.
       const involved = await client.query(
         `SELECT * FROM shifts
-          WHERE (date = $1 AND user_name IN ($2,$3))
-             OR (date = $4 AND user_name IN ($2,$3))
+          WHERE ((date = $1 AND user_name IN ($2,$3))
+              OR (date = $4 AND user_name IN ($2,$3)))
+            AND kind = 'duty'
           FOR UPDATE`,
         [fromDate, swap.from_user, swap.to_user, toDate]
       );
       const get = (date, user) =>
         involved.rows.find((r) => ymd(r.date) === date && r.user_name === user) || null;
 
-      const myFrom = get(fromDate, swap.from_user); // requester's shift to give away
-      const theirTo = get(toDate, swap.to_user);     // recipient's shift to give away
+      const myFrom = get(fromDate, swap.from_user);
+      const theirTo = get(toDate, swap.to_user);
 
-      if (!myFrom) {
-        return { status: 409, body: { error: 'requester_shift_missing' } };
-      }
+      if (!myFrom) return { status: 409, body: { error: 'requester_shift_missing' } };
 
-      // Block if target slots are already occupied by the other party's other shift.
-      const blockerA = get(fromDate, swap.to_user);
-      const blockerB = get(toDate, swap.from_user);
-      if (blockerA || blockerB) {
-        return { status: 409, body: { error: 'swap_blocked_by_existing_shift' } };
-      }
-
-      // Transfer myFrom: requester -> recipient on the same date
       const u1 = await client.query(
         `UPDATE shifts SET user_name = $1, updated_by = $2,
                           updated_at = NOW(), version = version + 1
          WHERE id = $3 RETURNING *`,
         [swap.to_user, req.user.name, myFrom.id]
       );
-
       let u2 = null;
       if (theirTo) {
         u2 = await client.query(
@@ -456,7 +512,6 @@ app.post('/swap/:id/respond', authMiddleware, async (req, res) => {
           [swap.from_user, req.user.name, theirTo.id]
         );
       }
-
       const upd = await client.query(
         `UPDATE swap_requests SET status = 'ACCEPTED' WHERE id = $1 RETURNING *`,
         [id]
@@ -472,17 +527,7 @@ app.post('/swap/:id/respond', authMiddleware, async (req, res) => {
 
     if (result.status !== 200) return res.status(result.status).json(result.body || {});
 
-    const swap = result.body.swap;
-    const swapPayload = {
-      id: swap.id,
-      from_user: swap.from_user,
-      to_user: swap.to_user,
-      from_date: ymd(swap.from_date),
-      to_date: ymd(swap.to_date),
-      status: swap.status,
-      created_at: swap.created_at,
-    };
-
+    const swapPayload = formatSwap(result.body.swap);
     for (const r of result.body.shifts) {
       broadcast('SHIFT_UPSERTED', { shift: formatShift(r), action: 'updated' });
     }
@@ -495,7 +540,7 @@ app.post('/swap/:id/respond', authMiddleware, async (req, res) => {
       to_date: swapPayload.to_date,
       by: req.user.name,
     });
-    audit(req.user.name, `SWAP_${action.toUpperCase()}ED`, swapPayload);
+    audit(req.user.name, `${swapPayload.type.toUpperCase()}_${action.toUpperCase()}ED`, swapPayload);
 
     res.json(swapPayload);
   } catch (err) {

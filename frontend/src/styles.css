@@ -408,6 +408,107 @@ textarea { resize: vertical; min-height: 90px; }
   padding: 10px 0 12px 4px;
 }
 
+/* Work shifts (main job) — visually muted, striped pattern */
+.shift-row.work-row {
+  font-style: italic;
+  color: var(--fg-2);
+}
+.shift-row.work-row .who-name { font-weight: 600; }
+.shift-row.work-row .time-pill {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255,255,255,0.85),
+    rgba(255,255,255,0.85) 4px,
+    rgba(0,0,0,0.04) 4px,
+    rgba(0,0,0,0.04) 6px
+  );
+}
+
+/* Auto-detected blocked / free segments on day card */
+.auto-blocks, .auto-free {
+  display: flex; flex-direction: column; gap: 6px;
+  margin-top: 4px;
+  margin-left: 4px;
+}
+.auto-blocked, .auto-free-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 600;
+  color: var(--fg-2);
+}
+.auto-blocked { color: #8a4500; }
+.auto-free-row { color: var(--muted); font-weight: 500; }
+
+/* Free-gap quick-take button in modal */
+.free-gap-btn {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1.5px dashed var(--border);
+  border-radius: 12px;
+  background: var(--bg-2);
+  color: var(--fg);
+  font-weight: 600; font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: all .15s;
+}
+.free-gap-btn:hover { background: #fff; border-color: var(--primary); }
+.free-gap-btn:active { transform: scale(0.98); }
+.free-gap-btn .take-pill {
+  margin-left: auto;
+  background: linear-gradient(135deg, var(--grad-from), var(--grad-to));
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px; font-weight: 700;
+}
+
+.auto-blocked-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #FFF7E5, #FFEED1);
+  border: 1px solid #FCE3B3;
+  color: #7A4A00;
+  border-radius: 12px;
+  margin-bottom: 6px;
+  font-size: 14px; font-weight: 600;
+}
+
+/* Transfer button on my own shifts */
+.transfer-btn {
+  margin-left: auto;
+  margin-right: 6px;
+  background: linear-gradient(135deg, var(--grad-from), var(--grad-to));
+  color: #fff;
+  border: none;
+  font-size: 12px; font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+.transfer-btn:active { transform: scale(0.96); }
+.transfer-btn:disabled { opacity: .5; }
+
+.my-shift.work {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--bg-2),
+    var(--bg-2) 6px,
+    rgba(177,156,233,0.08) 6px,
+    rgba(177,156,233,0.08) 12px
+  );
+}
+.other-shift.work {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--bg-2),
+    var(--bg-2) 6px,
+    rgba(0,0,0,0.04) 6px,
+    rgba(0,0,0,0.04) 12px
+  );
+  font-style: italic;
+}
+
 /* Password field with eye toggle */
 .password-field {
   position: relative;

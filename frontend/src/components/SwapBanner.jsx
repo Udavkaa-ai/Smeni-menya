@@ -12,7 +12,8 @@ export default function SwapBanner({ swap, onChange }) {
     try {
       const updated = await api.respondSwap(swap.id, action);
       onChange?.(updated);
-      setToast(action === 'accept' ? 'Обмен принят' : 'Обмен отклонён');
+      const noun = swap.type === 'transfer' ? 'передача' : 'обмен';
+      setToast(action === 'accept' ? `${noun} принят${swap.type === 'transfer' ? 'а' : ''}` : `${noun} отклонён${swap.type === 'transfer' ? 'а' : ''}`);
     } catch {
       setToast('Не получилось');
     } finally {
@@ -22,10 +23,17 @@ export default function SwapBanner({ swap, onChange }) {
 
   return (
     <div className="banner swap">
-      <div>
-        <b>{NAMES[swap.from_user]}</b> предлагает обмен:{' '}
-        <b>{ruDateShort(swap.from_date)}</b> ↔ <b>{ruDateShort(swap.to_date)}</b>
-      </div>
+      {swap.type === 'transfer' ? (
+        <div>
+          <b>{NAMES[swap.from_user]}</b> предлагает забрать её смену{' '}
+          <b>{ruDateShort(swap.from_date)}</b>
+        </div>
+      ) : (
+        <div>
+          <b>{NAMES[swap.from_user]}</b> предлагает обмен:{' '}
+          <b>{ruDateShort(swap.from_date)}</b> ↔ <b>{ruDateShort(swap.to_date)}</b>
+        </div>
+      )}
       <div className="actions">
         <button className="btn" disabled={busy} onClick={() => respond('reject')}>Отклонить</button>
         <button className="btn primary" disabled={busy} onClick={() => respond('accept')}>Принять</button>

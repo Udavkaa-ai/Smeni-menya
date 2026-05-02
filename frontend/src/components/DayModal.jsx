@@ -2,15 +2,18 @@ import React, { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api, getUser } from '../api/client.js';
 import { useWeekStore } from '../store/useWeekStore.js';
-import { ruDateLong, NAMES, timeRange } from '../utils/format.js';
+import {
+  ruDateLong, NAMES, timeRange,
+  computeDayCoverage, intervalLabel, minToTime
+} from '../utils/format.js';
 
-// Each editable item has either { id, version, ... } (existing) or { _new: true, ... } (new).
-function defaultDraft() {
+function newDraft(kind = 'duty', start = '09:00', end = '18:00') {
   return {
     _new: true,
     _localId: Math.random().toString(36).slice(2),
-    start_time: '09:00',
-    end_time: '18:00',
+    kind,
+    start_time: start,
+    end_time: end,
     description: '',
     is_work_day: false,
   };
@@ -22,60 +25,114 @@ export default function DayModal({ day, onClose }) {
   const setToast = useWeekStore((s) => s.setToast);
   const qc = useQueryClient();
 
-  const initialMine = (day.shifts || [])
-    .filter((s) => s.user_name === me)
+  const initialMineDuty = (day.shifts || [])
+    .filter((s) => s.user_name === me && s.kind !== 'work')
+    .map((s) => ({ ...s, kind: s.kind || 'duty' }));
+  const initialMineWork = (day.shifts || [])
+    .filter((s) => s.user_name === me && s.kind === 'work')
     .map((s) => ({ ...s }));
-  const theirShifts = (day.shifts || []).filter((s) => s.user_name === other);
-  const noneShift   = (day.shifts || []).find((s) => s.user_name === 'NONE');
 
-  const [mine, setMine] = useState(initialMine);
-  const [removed, setRemoved] = useState([]); // ids of existing shifts user removed
+  const theirShifts = (day.shifts || []).filter((s) => s.user_name === other);
+  const theirDuty = theirShifts.filter((s) => s.kind !== 'work');
+  const theirWork = theirShifts.filter((s) => s.kind === 'work');
+  const noneShift = (day.shifts || []).find((s) => s.user_name === 'NONE');
+
+  const [duty, setDuty] = useState(initialMineDuty);
+  const [work, setWork] = useState(initialMineWork);
+  const [removed, setRemoved] = useState([]);
   const [noOne, setNoOne] = useState(!!noneShift);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [transferringId, setTransferringId] = useState(null);
 
   const title = ruDateLong(day.date);
 
-  function updateOne(idx, patch) {
-    setMine((arr) => arr.map((s, i) => (i === idx ? { ...s, ...patch, _dirty: !s._new } : s)));
+  // Recompute coverage in realtime as user edits — for the gaps list shown in the modal.
+  const previewShifts = [
+    ...theirShifts,
+    ...duty.map((s) => ({ ...s, user_name: me, kind: 'duty' })),
+    ...work.map((s) => ({ ...s, user_name: me, kind: 'work' })),
+    ...(noOne ? [{ user_name: 'NONE' }] : []),
+  ];
+  const { free, blocked } = computeDayCoverage(previewShifts);
+
+  function patchAt(setter) {
+    return (idx, patch) =>
+      setter((arr) => arr.map((s, i) => (i === idx ? { ...s, ...patch, _dirty: !s._new } : s)));
   }
-  function removeOne(idx) {
-    setMine((arr) => {
-      const item = arr[idx];
-      if (item.id) setRemoved((r) => [...r, { id: item.id, version: item.version }]);
-      return arr.filter((_, i) => i !== idx);
-    });
+  function removeAt(setter) {
+    return (idx) =>
+      setter((arr) => {
+        const item = arr[idx];
+        if (item.id) setRemoved((r) => [...r, { id: item.id, version: item.version }]);
+        return arr.filter((_, i) => i !== idx);
+      });
   }
-  function addOne() {
-    setMine((arr) => [...arr, defaultDraft()]);
+
+  const updDuty = patchAt(setDuty);
+  const updWork = patchAt(setWork);
+  const rmDuty = removeAt(setDuty);
+  const rmWork = removeAt(setWork);
+
+  function takeFreeGap(gap) {
+    setDuty((arr) => [
+      ...arr,
+      newDraft('duty', minToTime(gap.start), minToTime(gap.end)),
+    ]);
+  }
+
+  async function transfer(shiftId) {
+    if (!window.confirm(`Предложить ${NAMES[other]} взять эту смену?`)) return;
+    try {
+      setTransferringId(shiftId);
+      await api.transferShift(shiftId);
+      setToast(`${NAMES[other]} получит запрос на передачу`);
+      onClose();
+    } catch {
+      setToast('Не удалось отправить');
+    } finally {
+      setTransferringId(null);
+    }
   }
 
   async function save() {
     setBusy(true);
     setError(null);
-    // Build all operations and fire them in parallel — they're independent.
     const ops = [];
+
     for (const r of removed) ops.push(api.deleteShift(r.id, r.version));
-    for (const s of mine) {
+
+    for (const s of duty) {
       if (s._new) {
         ops.push(api.postShift({
-          date: day.date,
-          user_name: me,
-          start_time: s.start_time,
-          end_time: s.end_time,
-          description: s.description,
-          is_work_day: s.is_work_day,
+          date: day.date, user_name: me, kind: 'duty',
+          start_time: s.start_time, end_time: s.end_time,
+          description: s.description, is_work_day: !!s.is_work_day,
         }));
       } else if (s._dirty) {
         ops.push(api.patchShift(s.id, {
-          start_time: s.start_time,
-          end_time: s.end_time,
-          description: s.description,
-          is_work_day: s.is_work_day,
-          version: s.version,
+          start_time: s.start_time, end_time: s.end_time,
+          description: s.description, is_work_day: !!s.is_work_day,
+          kind: 'duty', version: s.version,
         }));
       }
     }
+    for (const s of work) {
+      if (s._new) {
+        ops.push(api.postShift({
+          date: day.date, user_name: me, kind: 'work',
+          start_time: s.start_time, end_time: s.end_time,
+          description: '', is_work_day: true,
+        }));
+      } else if (s._dirty) {
+        ops.push(api.patchShift(s.id, {
+          start_time: s.start_time, end_time: s.end_time,
+          description: '', is_work_day: true,
+          kind: 'work', version: s.version,
+        }));
+      }
+    }
+
     if (noOne && !noneShift) {
       ops.push(api.postShift({ date: day.date, user_name: 'NONE' }));
     } else if (!noOne && noneShift) {
@@ -106,19 +163,22 @@ export default function DayModal({ day, onClose }) {
     }
   }
 
+  const myCls = me === 'SVETA' ? 'sveta' : 'maria';
+  const otherCls = other === 'SVETA' ? 'sveta' : 'maria';
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>{title}</h2>
 
-        {theirShifts.length > 0 && (
+        {(theirDuty.length > 0 || theirWork.length > 0) && (
           <div>
-            <span className="label">Смены {NAMES[other]}</span>
-            {theirShifts.map((s) => (
-              <div key={s.id} className={`other-shift ${other === 'SVETA' ? 'sveta' : 'maria'}`}>
+            <span className="label">У {NAMES[other]}</span>
+            {theirDuty.map((s) => (
+              <div key={s.id} className={`other-shift ${otherCls}`}>
                 <div className="other-head">
-                  <span className={`dot ${other === 'SVETA' ? 'sveta' : 'maria'}`} />
-                  <b>{NAMES[other]}</b>
+                  <span className={`dot ${otherCls}`} />
+                  <b>дежурит</b>
                   {(s.start_time || s.end_time) && (
                     <span className="other-time">{timeRange(s.start_time, s.end_time)}</span>
                   )}
@@ -126,23 +186,75 @@ export default function DayModal({ day, onClose }) {
                 {s.description && <div className="other-desc">{s.description}</div>}
               </div>
             ))}
+            {theirWork.map((s) => (
+              <div key={s.id} className={`other-shift work ${otherCls}`}>
+                <div className="other-head">
+                  <span className={`dot ${otherCls}`} />
+                  <b>основная работа</b>
+                  {(s.start_time || s.end_time) && (
+                    <span className="other-time">{timeRange(s.start_time, s.end_time)}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Auto-detected free gaps with one-click take */}
+        {free.length > 0 && !noOne && (
+          <div>
+            <span className="label">Свободное время</span>
+            {free.map((g, i) => (
+              <button
+                key={i}
+                type="button"
+                className="free-gap-btn"
+                onClick={() => takeFreeGap(g)}
+              >
+                <span>Свободно {intervalLabel(g)}</span>
+                <span className="take-pill">+ беру</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {blocked.length > 0 && !noOne && (
+          <div>
+            <span className="label">Никто не сможет (основная работа у обеих)</span>
+            {blocked.map((b, i) => (
+              <div key={i} className="auto-blocked-row">
+                <span className="dot none" />
+                <span className="time-pill">{intervalLabel(b)}</span>
+              </div>
+            ))}
           </div>
         )}
 
         <div>
-          <span className="label">Мои смены</span>
-          {mine.length === 0 && (
+          <span className="label">Мои дежурства</span>
+          {duty.length === 0 && (
             <div className="empty-mine">Вы пока не записаны на этот день</div>
           )}
-          {mine.map((s, idx) => (
-            <div key={s.id || s._localId} className="my-shift">
+          {duty.map((s, idx) => (
+            <div key={s.id || s._localId} className={`my-shift ${myCls}`}>
               <div className="my-shift-head">
-                <span className={`dot ${me === 'SVETA' ? 'sveta' : 'maria'}`} />
-                <b>{NAMES[me]}</b>
+                <span className={`dot ${myCls}`} />
+                <b>дежурство</b>
+                {!s._new && (
+                  <button
+                    type="button"
+                    className="transfer-btn"
+                    title={`Предложить ${NAMES[other]}`}
+                    disabled={transferringId === s.id}
+                    onClick={() => transfer(s.id)}
+                  >
+                    → {NAMES[other]}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="x-btn"
-                  onClick={() => removeOne(idx)}
+                  onClick={() => rmDuty(idx)}
                   aria-label="Удалить смену"
                 >×</button>
               </div>
@@ -150,31 +262,67 @@ export default function DayModal({ day, onClose }) {
                 <input
                   type="time"
                   value={s.start_time || ''}
-                  onChange={(e) => updateOne(idx, { start_time: e.target.value })}
+                  onChange={(e) => updDuty(idx, { start_time: e.target.value })}
                 />
                 <input
                   type="time"
                   value={s.end_time || ''}
-                  onChange={(e) => updateOne(idx, { end_time: e.target.value })}
+                  onChange={(e) => updDuty(idx, { end_time: e.target.value })}
                 />
               </div>
               <textarea
                 value={s.description || ''}
-                onChange={(e) => updateOne(idx, { description: e.target.value })}
+                onChange={(e) => updDuty(idx, { description: e.target.value })}
                 placeholder="Описание (лекарства, прогулка…)"
               />
-              <label className="checkbox-row compact">
-                <input
-                  type="checkbox"
-                  checked={!!s.is_work_day}
-                  onChange={(e) => updateOne(idx, { is_work_day: e.target.checked })}
-                />
-                <span>Это мой основной рабочий день</span>
-              </label>
             </div>
           ))}
-          <button type="button" className="btn ghost full add-shift" onClick={addOne}>
-            + Добавить смену
+          <button
+            type="button"
+            className="btn ghost full add-shift"
+            onClick={() => setDuty((a) => [...a, newDraft('duty')])}
+          >
+            + Добавить дежурство
+          </button>
+        </div>
+
+        <div>
+          <span className="label">Моя основная работа</span>
+          {work.length === 0 && (
+            <div className="empty-mine">Не отмечена</div>
+          )}
+          {work.map((s, idx) => (
+            <div key={s.id || s._localId} className={`my-shift work ${myCls}`}>
+              <div className="my-shift-head">
+                <span className={`dot ${myCls}`} />
+                <b>основная работа</b>
+                <button
+                  type="button"
+                  className="x-btn"
+                  onClick={() => rmWork(idx)}
+                  aria-label="Удалить"
+                >×</button>
+              </div>
+              <div className="time-row">
+                <input
+                  type="time"
+                  value={s.start_time || ''}
+                  onChange={(e) => updWork(idx, { start_time: e.target.value })}
+                />
+                <input
+                  type="time"
+                  value={s.end_time || ''}
+                  onChange={(e) => updWork(idx, { end_time: e.target.value })}
+                />
+              </div>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="btn ghost full add-shift"
+            onClick={() => setWork((a) => [...a, newDraft('work', '09:00', '18:00')])}
+          >
+            + Добавить занятость
           </button>
         </div>
 
@@ -184,7 +332,7 @@ export default function DayModal({ day, onClose }) {
             checked={noOne}
             onChange={(e) => setNoOne(e.target.checked)}
           />
-          <span>Никто из нас не сможет</span>
+          <span>Никто из нас не сможет (весь день)</span>
         </label>
 
         {error && <div style={{ color: '#B91C5B', fontSize: 14, fontWeight: 600 }}>{error}</div>}

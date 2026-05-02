@@ -64,6 +64,10 @@ export function formatNotification(p) {
       return `${by} убрала отметку «никто» с ${date}`;
     case 'shift_request':
       return `${by} предлагает обмен: ${ruDateShort(p.from_date)} ↔ ${ruDateShort(p.to_date)}`;
+    case 'transfer_request': {
+      const tr = timeRange(p.start_time, p.end_time);
+      return `${by} предлагает забрать её смену ${ruDateShort(p.date)}${tr ? `, ${tr}` : ''}`;
+    }
     case 'shift_accepted':
       return `${by} приняла обмен: ${ruDateShort(p.from_date)} ↔ ${ruDateShort(p.to_date)}`;
     case 'shift_rejected':
@@ -100,6 +104,118 @@ export function timesOverlap(a, b) {
   if (!a?.start_time || !a?.end_time) return false;
   if (!b?.start_time || !b?.end_time) return false;
   return a.start_time < b.end_time && b.start_time < a.end_time;
+}
+
+// Convert "HH:MM" to minutes since midnight (0..1440). null/empty → null.
+export function timeToMin(t) {
+  if (!t) return null;
+  const [h, m] = t.split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+export function minToTime(m) {
+  if (m == null) return '';
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+// Merge a list of intervals [{start, end}] into non-overlapping union.
+function mergeIntervals(intervals) {
+  if (intervals.length === 0) return [];
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
+  const out = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = out[out.length - 1];
+    const cur = sorted[i];
+    if (cur.start <= last.end) {
+      last.end = Math.max(last.end, cur.end);
+    } else {
+      out.push({ ...cur });
+    }
+  }
+  return out;
+}
+
+// Subtract `holes` (each {start,end}) from `total` ({start,end}). Returns array of remaining gaps.
+function subtract(total, holes) {
+  const merged = mergeIntervals(holes);
+  const gaps = [];
+  let cursor = total.start;
+  for (const h of merged) {
+    if (h.end <= total.start) continue;
+    if (h.start >= total.end) break;
+    if (h.start > cursor) gaps.push({ start: cursor, end: Math.min(h.start, total.end) });
+    cursor = Math.max(cursor, h.end);
+    if (cursor >= total.end) break;
+  }
+  if (cursor < total.end) gaps.push({ start: cursor, end: total.end });
+  return gaps;
+}
+
+// Intersect two interval sets — used to find moments when BOTH users are blocked by work.
+function intersect(setA, setB) {
+  const out = [];
+  for (const a of setA) {
+    for (const b of setB) {
+      const start = Math.max(a.start, b.start);
+      const end = Math.min(a.end, b.end);
+      if (end > start) out.push({ start, end });
+    }
+  }
+  return mergeIntervals(out);
+}
+
+const DAY_START = 0;
+const DAY_END   = 24 * 60;
+
+// Compute which periods of the day are free (no duty + no blocking).
+// `shifts` is the day's full shift list. Optionally filter by users array.
+//
+// blocked = (NONE marker exists for whole day) OR (intersection of work shifts of SVETA & MARIA)
+// covered = union of duty shifts (any user)
+// free    = day  −  covered  −  blocked
+export function computeDayCoverage(shifts) {
+  const noneMarker = (shifts || []).find((s) => s.user_name === 'NONE');
+  const allDayBlocked = !!noneMarker;
+
+  function intervalsFor(userName, kind) {
+    return (shifts || [])
+      .filter((s) => s.user_name === userName && s.kind === kind)
+      .map((s) => ({ start: timeToMin(s.start_time), end: timeToMin(s.end_time) }))
+      .filter((x) => x.start != null && x.end != null && x.end > x.start);
+  }
+
+  const svetaWork = intervalsFor('SVETA', 'work');
+  const mariaWork = intervalsFor('MARIA', 'work');
+  const dutyAll   = mergeIntervals([
+    ...intervalsFor('SVETA', 'duty'),
+    ...intervalsFor('MARIA', 'duty'),
+  ]);
+
+  let blocked = allDayBlocked
+    ? [{ start: DAY_START, end: DAY_END }]
+    : intersect(svetaWork, mariaWork);
+
+  // Don't show blocked-and-covered overlap; if duty exists during blocked time, duty wins.
+  if (dutyAll.length) {
+    const result = [];
+    for (const b of blocked) {
+      result.push(...subtract(b, dutyAll));
+    }
+    blocked = result;
+  }
+
+  const free = subtract(
+    { start: DAY_START, end: DAY_END },
+    [...dutyAll, ...blocked]
+  );
+
+  return { free, blocked, duty: dutyAll };
+}
+
+export function intervalLabel(iv) {
+  return `${minToTime(iv.start)}–${minToTime(iv.end)}`;
 }
 
 export function todayIso() {

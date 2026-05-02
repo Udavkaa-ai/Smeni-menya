@@ -1,5 +1,7 @@
 import React, { useRef } from 'react';
-import { NAMES, timesOverlap, timeRange } from '../utils/format.js';
+import {
+  NAMES, timeRange, computeDayCoverage, intervalLabel, timesOverlap
+} from '../utils/format.js';
 
 const DOW = ['ВС','ПН','ВТ','СР','ЧТ','ПТ','СБ'];
 
@@ -18,12 +20,12 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
   const press = useRef({ timer: null, fired: false, x: 0, y: 0 });
   const allShifts = day.shifts || [];
 
-  const sveta = sortShifts(allShifts.filter((s) => s.user_name === 'SVETA'));
-  const maria = sortShifts(allShifts.filter((s) => s.user_name === 'MARIA'));
+  const sveta = sortShifts(allShifts.filter((s) => s.user_name === 'SVETA' && s.kind !== 'work'));
+  const maria = sortShifts(allShifts.filter((s) => s.user_name === 'MARIA' && s.kind !== 'work'));
+  const work  = sortShifts(allShifts.filter((s) => s.kind === 'work'));
   const none  = allShifts.find((s) => s.user_name === 'NONE');
 
-  // Conflict: any pair of shifts (same or different user) with overlapping times,
-  // OR NONE marker plus any real shift.
+  // Conflict: two duty shifts of different/same users with overlapping time.
   const conflict = (() => {
     const items = [...sveta, ...maria];
     for (let i = 0; i < items.length; i++) {
@@ -31,15 +33,17 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
         if (timesOverlap(items[i], items[j])) return true;
       }
     }
-    if (none && (sveta.length || maria.length)) return true;
     return false;
   })();
+
+  // Auto-detected coverage: free gaps and "no-one-can" intersections of work blocks.
+  const { free, blocked } = computeDayCoverage(allShifts);
 
   let cardTone = 'free';
   if (sveta.length && maria.length) cardTone = 'duo';
   else if (sveta.length) cardTone = 'sveta';
   else if (maria.length) cardTone = 'maria';
-  else if (none) cardTone = 'none';
+  else if (none || blocked.length) cardTone = 'none';
 
   function handleStart(e) {
     const p = e.touches ? e.touches[0] : e;
@@ -70,8 +74,8 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
   const dow = DOW[dt.getUTCDay()];
   const dnum = dt.getUTCDate();
 
-  const anyWork = allShifts.some((s) => s.is_work_day);
-  const totalShifts = sveta.length + maria.length + (none ? 1 : 0);
+  const totalShifts = sveta.length + maria.length + work.length + (none ? 1 : 0);
+  const isFullyFree = free.length === 1 && free[0].start === 0 && free[0].end === 24 * 60;
 
   return (
     <div
@@ -88,7 +92,6 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
       <div className="row1">
         <span className="dow">{dow}</span>
         <span className="date">{dnum}</span>
-        {anyWork && <span className="work">основная работа</span>}
         {conflict && <span className="conflict-badge">⚠ накладывается</span>}
       </div>
 
@@ -103,12 +106,39 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
         <div className="shifts">
           {sveta.map((s) => <ShiftRow key={s.id} shift={s} />)}
           {maria.map((s) => <ShiftRow key={s.id} shift={s} />)}
+          {work.map((s) => <WorkRow key={s.id} shift={s} />)}
           {none && (
             <div className="shift-row none-row">
               <span className="dot none" />
               <span className="who-name">Никто из нас не сможет</span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Auto-detected blocked intervals (intersection of both users' work blocks) */}
+      {!none && blocked.length > 0 && (
+        <div className="auto-blocks">
+          {blocked.map((b, i) => (
+            <div key={i} className="auto-blocked">
+              <span className="dot none" />
+              <span>Никто не сможет</span>
+              <span className="time-pill">{intervalLabel(b)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Auto-detected free segments (only if not the whole 24h or there's something else going on) */}
+      {!isFullyFree && free.length > 0 && (
+        <div className="auto-free">
+          {free.map((f, i) => (
+            <div key={i} className="auto-free-row">
+              <span className="dot free" />
+              <span>Свободно</span>
+              <span className="time-pill">{intervalLabel(f)}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -124,6 +154,18 @@ function ShiftRow({ shift }) {
       <span className="who-name">{NAMES[shift.user_name]}</span>
       {tr && <span className="time-pill">{tr}</span>}
       {shift.description && <div className="desc">{shift.description}</div>}
+    </div>
+  );
+}
+
+function WorkRow({ shift }) {
+  const cls = shiftClass(shift.user_name);
+  const tr = timeRange(shift.start_time, shift.end_time);
+  return (
+    <div className={`shift-row work-row ${cls}-row`}>
+      <span className={`dot ${cls}`} />
+      <span className="who-name">{NAMES[shift.user_name]}: основная работа</span>
+      {tr && <span className="time-pill">{tr}</span>}
     </div>
   );
 }
