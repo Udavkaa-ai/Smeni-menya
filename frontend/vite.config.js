@@ -2,7 +2,21 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// A unique tag baked into the bundle on every build. Used by main.jsx to
+// detect stale client caches — when this changes, all clients self-wipe
+// on next page load.
+//   - Railway/CI sets VITE_BUILD_ID automatically per build (or you can
+//     override). Local dev gets a fresh timestamp on each `vite` start.
+const APP_DATA_VERSION =
+  process.env.VITE_BUILD_ID ||
+  process.env.RAILWAY_DEPLOYMENT_ID ||
+  process.env.RAILWAY_GIT_COMMIT_SHA ||
+  new Date().toISOString();
+
 export default defineConfig({
+  define: {
+    __APP_DATA_VERSION__: JSON.stringify(APP_DATA_VERSION),
+  },
   plugins: [
     react(),
     VitePWA({

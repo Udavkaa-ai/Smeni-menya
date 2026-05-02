@@ -4,11 +4,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App.jsx';
 import './styles.css';
 
-// Bump this when the client-side data shape or SW caches change in a way
-// that breaks older clients. On version mismatch we wipe localStorage
-// (except auth), unregister old service workers, drop all Cache Storage
-// entries, then reload — the user just sees a brief "Updating…" splash.
-const APP_DATA_VERSION = '2026.05.02-r1';
+// Auto-injected at build time by vite.config.js (Railway deploy ID, git SHA,
+// or build timestamp). Every build gets a unique value, so clients with stale
+// caches/data self-wipe on next page load — no manual version bump needed.
+// eslint-disable-next-line no-undef
+const APP_DATA_VERSION = typeof __APP_DATA_VERSION__ !== 'undefined' ? __APP_DATA_VERSION__ : 'dev';
 
 const AUTH_KEYS = ['sm_token', 'sm_user', 'sm_last_user'];
 
