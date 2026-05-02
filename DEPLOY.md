@@ -77,40 +77,45 @@ H... (короче)
 ## Шаг 3. Frontend
 
 1. В проекте: **+ Create** → **GitHub Repo** → снова выбери `udavkaa-ai/smeni-menya`.
-2. В **Settings**:
-   - **Root Directory**: `frontend`
-   - **Builder**: `Dockerfile`
-3. Вкладка **Variables**, добавь:
+2. Кликни по созданному сервису → вкладка **Settings**:
+   - **Service Name**: переименуй во что-то понятное, например `frontend` (по умолчанию Railway даёт случайное имя типа `cozy-optimism`).
+   - Секция **Source** → **Root Directory**: `/frontend` ⚠️ **обязательно**, иначе Docker не найдёт `package.json`.
+   - Секция **Build** → **Builder**: `Dockerfile`.
+   - **Dockerfile Path**: `Dockerfile` (без префикса, потому что Root Directory уже = `/frontend`).
+
+3. Перейди во вкладку **Variables** и добавь следующие переменные:
 
 | Имя | Значение | Пояснение |
 |------|----------|-----------|
-| `BACKEND_HOST` | `smeni-menya-backend-production.up.railway.app:443` | домен backend из шага 2 + `:443` |
+| `VITE_API_BASE` | `/api` | путь, по которому фронт ходит в API (nginx внутри проксирует) |
+| `VITE_WS_BASE` | (пустое) | клиент сам построит `wss://<твой-домен>/ws` |
+| `BACKEND_HOST` | `<backend-private-domain>:8080` | см. ниже |
 
-> На Railway внешний хост слушает 443 (HTTPS). nginx внутри фронта будет ходить на этот upstream по HTTPS — но внутренняя проксировка работает через приватные сетевые имена. Лучший вариант — внутренний адрес (см. ниже **«Альтернатива: приватная сеть»**).
+> **Важно:** в текущей версии Railway **нет отдельного раздела «Build Variables»**. Все переменные из вкладки **Variables** автоматически передаются в Dockerfile-сборку как `--build-arg` (и доступны как env при рантайме). Так что `VITE_API_BASE` и `VITE_WS_BASE` лежат в той же вкладке, что и `BACKEND_HOST`.
 
-4. Так как фронтенд собирается как статика и API URL зашит в бандл, нам нужно передать **build-args**. На Railway это делается через секцию **Build** в Settings:
-   - **Build Variables** (build-args):
-     - `VITE_API_BASE` = `/api`
-     - `VITE_WS_BASE` = `` (пусто — клиент сам построит wss-URL от текущего хоста)
+> Чтобы получить `<backend-private-domain>`: открой backend-сервис → **Settings** → **Networking** → включи **Private Networking** → скопируй приватный домен (выглядит как `<service-name>.railway.internal`). Если приватная сеть не включена, можешь использовать публичный URL backend, но тогда нужен https-апстрим (см. раздел «Если backend по HTTPS» ниже).
 
-5. Вкладка **Settings** → **Networking** → **Generate Domain**. Получишь URL фронтенда — это и есть адрес приложения.
+4. **Settings** → **Networking** → **Generate Domain**. Получишь публичный URL фронтенда — это и есть адрес приложения.
+
+5. **Важно после изменения переменных:** Railway не пересобирает образ автоматически каждый раз. После добавления `VITE_*` нажми **Deployments** → меню «⋯» у последнего деплоя → **Redeploy**. Build-args зашиваются в JS-бандл при сборке — без redeploy старый бандл останется.
 
 6. Открой полученный URL — должна загрузиться страница входа «Сменимся».
 
 ---
 
-### Альтернатива: внутренняя сеть Railway (рекомендуется)
+### Где искать private domain
 
-Railway поддерживает **private networking** — сервисы могут общаться между собой без выхода в интернет.
-
-В Backend Settings → Networking → включи **Private Networking** и скопируй **Private domain**, что-то вроде `smeni-menya-backend.railway.internal`.
-
-Тогда в переменных Frontend ставь:
+Backend-сервис → **Settings** → **Networking** → секция **Private Networking** (включи переключатель если выключен) → строка **Private Domain**, например:
 ```
-BACKEND_HOST=smeni-menya-backend.railway.internal:8080
+backend.railway.internal
 ```
+В переменной `BACKEND_HOST` пишешь:
+```
+backend.railway.internal:8080
+```
+(порт всегда `8080`, как в Dockerfile backend.)
 
-Это быстрее и не тратит исходящий трафик.
+Это быстрее публичного домена и не тратит исходящий трафик.
 
 ---
 
