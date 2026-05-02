@@ -1,8 +1,7 @@
 import React, { useRef } from 'react';
 import {
-  NAMES, timeRange, timesOverlap,
-  computeDayCoverage, intervalLabel, minToTime,
-  buildTimelineSegments, workIntervalsFor, findIntraUserConflicts,
+  NAMES, timeRange, computeDayCoverage, intervalLabel,
+  buildTimelineSegments, workIntervalsFor, minToTime,
 } from '../utils/format.js';
 
 const DOW = ['ВС','ПН','ВТ','СР','ЧТ','ПТ','СБ'];
@@ -18,48 +17,43 @@ function sortShifts(arr) {
   return [...arr].sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
 }
 
+const isBusyKind = (s) => s.kind === 'work' || s.kind === 'other';
+
 export default function DayCard({ day, isToday, isPast, expanded = true, onTap, onLongPress }) {
-  // press state — used to distinguish tap from long-press from drag.
-  // We use Pointer Events so touch and mouse don't both fire on the same gesture.
   const press = useRef({ timer: null, fired: false, x: 0, y: 0, pointerId: null });
   const lastTap = useRef(0);
   const allShifts = day.shifts || [];
 
-  const isDuty = (s) => s.kind !== 'work' && s.kind !== 'other';
-  const sveta = sortShifts(allShifts.filter((s) => s.user_name === 'SVETA' && isDuty(s)));
-  const maria = sortShifts(allShifts.filter((s) => s.user_name === 'MARIA' && isDuty(s)));
-  const work  = sortShifts(allShifts.filter((s) => s.kind === 'work'));
-  const other = sortShifts(allShifts.filter((s) => s.kind === 'other'));
-  const none  = allShifts.find((s) => s.user_name === 'NONE');
+  // In the simplified model we only render BUSY entries. Legacy duty entries
+  // sit in DB but are ignored by the UI.
+  const svetaBusy = sortShifts(allShifts.filter((s) => s.user_name === 'SVETA' && isBusyKind(s)));
+  const mariaBusy = sortShifts(allShifts.filter((s) => s.user_name === 'MARIA' && isBusyKind(s)));
+  const none = allShifts.find((s) => s.user_name === 'NONE');
 
-  // Cross-user duty overlap.
-  const dutyClash = (() => {
-    const items = [...sveta, ...maria];
-    for (let i = 0; i < items.length; i++) {
-      for (let j = i + 1; j < items.length; j++) {
-        if (timesOverlap(items[i], items[j])) return true;
-      }
-    }
-    return false;
-  })();
-  // Intra-user: own duty overlapping own work/other (impossible to be in two places).
-  const selfConflicts = findIntraUserConflicts(allShifts);
-  const conflict = dutyClash || selfConflicts.length > 0;
-
-  const { free, blocked, suggestSveta, suggestMaria } = computeDayCoverage(allShifts);
+  const { blocked } = computeDayCoverage(allShifts);
   const segments = buildTimelineSegments(allShifts);
-  const svetaWork = workIntervalsFor(allShifts, 'SVETA');
-  const mariaWork = workIntervalsFor(allShifts, 'MARIA');
+  const svetaWork = workIntervalsFor(allShifts, 'SVETA').concat(
+    allShifts
+      .filter((s) => s.user_name === 'SVETA' && s.kind === 'other')
+      .map((s) => ({ start: timeToMinSafe(s.start_time), end: timeToMinSafe(s.end_time), id: s.id }))
+      .filter((x) => x.start != null && x.end != null && x.end > x.start)
+  );
+  const mariaWork = workIntervalsFor(allShifts, 'MARIA').concat(
+    allShifts
+      .filter((s) => s.user_name === 'MARIA' && s.kind === 'other')
+      .map((s) => ({ start: timeToMinSafe(s.start_time), end: timeToMinSafe(s.end_time), id: s.id }))
+      .filter((x) => x.start != null && x.end != null && x.end > x.start)
+  );
 
   let cardTone = 'free';
-  if (sveta.length && maria.length) cardTone = 'duo';
-  else if (sveta.length) cardTone = 'sveta';
-  else if (maria.length) cardTone = 'maria';
-  else if (none || blocked.length) cardTone = 'none';
+  if (none || blocked.length) cardTone = 'none';
+  else if (svetaBusy.length && mariaBusy.length) cardTone = 'duo';
+  else if (svetaBusy.length) cardTone = 'sveta';
+  else if (mariaBusy.length) cardTone = 'maria';
 
   function handleStart(e) {
-    if (press.current.pointerId != null) return;       // ignore extra fingers
-    if (e.target.closest('button, input, textarea, label')) return; // not interactive
+    if (press.current.pointerId != null) return;
+    if (e.target.closest('button, input, textarea, label')) return;
     press.current.pointerId = e.pointerId;
     press.current.fired = false;
     press.current.x = e.clientX;
@@ -83,8 +77,6 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
     const wasLongPress = press.current.fired;
     press.current.pointerId = null;
     if (wasLongPress) return;
-    // Belt-and-suspenders: ignore taps that arrive within 350ms of the
-    // previous one (some platforms still synthesize duplicate events).
     const now = Date.now();
     if (now - lastTap.current < 350) return;
     lastTap.current = now;
@@ -99,91 +91,52 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
   const dow = DOW[dt.getUTCDay()];
   const dnum = dt.getUTCDate();
 
-  const totalShifts = sveta.length + maria.length + work.length + other.length + (none ? 1 : 0);
-  const isFullyFree = free.length === 1 && free[0].start === 0 && free[0].end === 24 * 60;
+  const totalEntries = svetaBusy.length + mariaBusy.length + (none ? 1 : 0);
 
   return (
     <div
-      className={`card tone-${cardTone} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''} ${conflict ? 'conflict' : ''} ${expanded ? 'expanded' : 'collapsed'}`}
+      className={`card tone-${cardTone} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''} ${expanded ? 'expanded' : 'collapsed'}`}
       onPointerDown={handleStart}
       onPointerMove={handleMove}
       onPointerUp={handleEnd}
       onPointerCancel={handleCancel}
       onPointerLeave={handleCancel}
     >
-      <WorkVBar intervals={svetaWork} side="left" cls="sveta" label="Света — основная работа" />
-      <WorkVBar intervals={mariaWork} side="right" cls="maria" label="Мария — основная работа" />
+      <WorkVBar intervals={svetaWork} side="left"  cls="sveta" label="Света — занятость" />
+      <WorkVBar intervals={mariaWork} side="right" cls="maria" label="Мария — занятость" />
 
       <div className="card-content">
         <div className="row1">
           <span className="dow">{dow}</span>
           <span className="date">{dnum}</span>
-          {conflict && <span className="conflict-badge">⚠ накладывается</span>}
           {!expanded && <span className="expand-hint">▾</span>}
         </div>
 
         <Timeline segments={segments} />
 
         {!expanded && (
-          <CompactSummary
-            sveta={sveta} maria={maria} work={work} other={other}
-            none={!!none} blocked={blocked}
-          />
+          <CompactSummary svetaBusy={svetaBusy} mariaBusy={mariaBusy} none={!!none} blocked={blocked} />
         )}
 
-        {expanded && totalShifts === 0 && (
+        {expanded && totalEntries === 0 && (
           <div className="who">
             <span className="dot free" />
-            <span className="empty-day">Не назначено</span>
+            <span className="empty-day">Все свободны</span>
           </div>
         )}
 
-        {expanded && totalShifts > 0 && (
-          <div className="shifts">
-            {sveta.map((s) => <ShiftRow key={s.id} shift={s} />)}
-            {maria.map((s) => <ShiftRow key={s.id} shift={s} />)}
-            {work.map((s) => <BusyRow key={s.id} shift={s} kind="work" />)}
-            {other.map((s) => <BusyRow key={s.id} shift={s} kind="other" />)}
+        {expanded && totalEntries > 0 && (
+          <div className="busy-list">
+            {svetaBusy.map((s) => <BusyCard key={s.id} shift={s} />)}
+            {mariaBusy.map((s) => <BusyCard key={s.id} shift={s} />)}
             {none && (
-              <div className="shift-row none-row">
-                <span className="dot none" />
-                <span className="who-name">Никто из нас не сможет</span>
+              <div className="busy-card none">
+                <div className="busy-head">
+                  <span className="dot none" />
+                  <b>Никто из нас не сможет</b>
+                </div>
               </div>
             )}
-          </div>
-        )}
-
-        {expanded && selfConflicts.length > 0 && (
-          <div className="self-conflict">
-            {selfConflicts.map((c, i) => (
-              <div key={i}>
-                ⚠ {NAMES[c.user_name]} одновременно дежурит и занята —
-                {' '}{c.duty.start_time}–{c.duty.end_time} ↔ {c.busy.start_time}–{c.busy.end_time}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {expanded && suggestMaria.length > 0 && (
-          <div className="suggest-list">
-            {suggestMaria.map((s, i) => (
-              <div key={i} className="suggest-row maria">
-                <span className="dot maria" />
-                <b>Маша</b> может взять
-                <span className="time-pill">{intervalLabel(s)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {expanded && suggestSveta.length > 0 && (
-          <div className="suggest-list">
-            {suggestSveta.map((s, i) => (
-              <div key={i} className="suggest-row sveta">
-                <span className="dot sveta" />
-                <b>Света</b> может взять
-                <span className="time-pill">{intervalLabel(s)}</span>
-              </div>
-            ))}
           </div>
         )}
 
@@ -198,54 +151,16 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
             ))}
           </div>
         )}
-
-        {expanded && !isFullyFree && free.length > 0 && (
-          <div className="auto-free">
-            {free.map((f, i) => (
-              <div key={i} className="auto-free-row">
-                <span className="dot free" />
-                <span>Свободно</span>
-                <span className="time-pill">{intervalLabel(f)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {expanded && totalShifts > 0 && (
-          <div className="card-edit-hint">тап ещё раз — редактировать</div>
-        )}
       </div>
     </div>
   );
 }
 
-function CompactSummary({ sveta, maria, work, other, none, blocked }) {
-  const chips = [];
-  if (sveta.length) chips.push({ cls: 'sveta', label: NAMES.SVETA, count: sveta.length });
-  if (maria.length) chips.push({ cls: 'maria', label: NAMES.MARIA, count: maria.length });
-  if (none) chips.push({ cls: 'none', label: 'Никто' });
-  if (!none && blocked.length) chips.push({ cls: 'none', label: 'Никто', count: blocked.length });
-  if (work.length)  chips.push({ cls: 'busy', label: 'работа', count: work.length });
-  if (other.length) chips.push({ cls: 'busy', label: 'другое', count: other.length });
-
-  if (chips.length === 0) {
-    return (
-      <div className="compact-summary">
-        <span className="empty-day">Не назначено</span>
-      </div>
-    );
-  }
-  return (
-    <div className="compact-summary">
-      {chips.map((c, i) => (
-        <span key={i} className={`compact-chip chip-${c.cls}`}>
-          <span className={`dot ${c.cls === 'busy' ? 'free' : c.cls}`} />
-          {c.label}
-          {c.count > 1 ? ` ×${c.count}` : ''}
-        </span>
-      ))}
-    </div>
-  );
+function timeToMinSafe(t) {
+  if (!t) return null;
+  const [h, m] = t.split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
 }
 
 function Timeline({ segments }) {
@@ -284,35 +199,51 @@ function WorkVBar({ intervals, side, cls, label }) {
             top: `${(iv.start / 1440) * 100}%`,
             height: `${((iv.end - iv.start) / 1440) * 100}%`,
           }}
-          title={`${minToTime(iv.start)}–${minToTime(iv.end)} основная работа`}
+          title={`${minToTime(iv.start)}–${minToTime(iv.end)} занятость`}
         />
       ))}
     </div>
   );
 }
 
-function ShiftRow({ shift }) {
-  const cls = shiftClass(shift.user_name);
-  const tr = timeRange(shift.start_time, shift.end_time);
+function CompactSummary({ svetaBusy, mariaBusy, none, blocked }) {
+  const chips = [];
+  if (svetaBusy.length) chips.push({ cls: 'sveta', label: NAMES.SVETA, count: svetaBusy.length });
+  if (mariaBusy.length) chips.push({ cls: 'maria', label: NAMES.MARIA, count: mariaBusy.length });
+  if (none) chips.push({ cls: 'none', label: 'Никто' });
+  else if (blocked.length) chips.push({ cls: 'none', label: 'Никто', count: blocked.length });
+
+  if (chips.length === 0) {
+    return (
+      <div className="compact-summary">
+        <span className="empty-day">Все свободны</span>
+      </div>
+    );
+  }
   return (
-    <div className={`shift-row ${cls}-row`}>
-      <span className={`dot ${cls}`} />
-      <span className="who-name">{NAMES[shift.user_name]}</span>
-      {tr && <span className="time-pill">{tr}</span>}
-      {shift.description && <div className="desc">{shift.description}</div>}
+    <div className="compact-summary">
+      {chips.map((c, i) => (
+        <span key={i} className={`compact-chip chip-${c.cls}`}>
+          <span className={`dot ${c.cls}`} />
+          {c.label}
+          {c.count > 1 ? ` ×${c.count}` : ''}
+        </span>
+      ))}
     </div>
   );
 }
 
-function BusyRow({ shift, kind }) {
+function BusyCard({ shift }) {
   const cls = shiftClass(shift.user_name);
   const tr = timeRange(shift.start_time, shift.end_time);
-  const label = kind === 'work' ? 'основная работа' : 'другое';
   return (
-    <div className={`shift-row busy-row ${cls}-row`}>
-      <span className={`dot ${cls}`} />
-      <span className="who-name">{NAMES[shift.user_name]}: {label}</span>
-      {tr && <span className="time-pill">{tr}</span>}
+    <div className={`busy-card ${cls}`}>
+      <div className="busy-head">
+        <span className={`dot ${cls}`} />
+        <b>{NAMES[shift.user_name]}</b>
+        {tr && <span className="busy-time">{tr}</span>}
+      </div>
+      {shift.description && <div className="busy-desc">{shift.description}</div>}
     </div>
   );
 }

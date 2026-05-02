@@ -601,6 +601,57 @@ textarea { resize: vertical; min-height: 90px; }
   padding: 10px 0 12px 4px;
 }
 
+/* Busy entry — colored by user, used in DayCard expanded view + DayModal */
+.busy-list {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-left: 4px;
+}
+.busy-card {
+  background: var(--bg-2);
+  border-radius: 14px;
+  padding: 10px 14px;
+  border-left: 4px solid var(--color-free);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.busy-card.sveta { border-left-color: var(--color-sveta); background: linear-gradient(135deg, #fff, var(--color-sveta-bg)); }
+.busy-card.maria { border-left-color: var(--color-maria); background: linear-gradient(135deg, #fff, var(--color-maria-bg)); }
+.busy-card.none  { border-left-color: var(--color-none);  background: linear-gradient(135deg, #fff, var(--color-none-bg)); }
+.busy-card.editable { padding: 12px 14px; gap: 10px; }
+
+.busy-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14px; font-weight: 700;
+}
+.busy-head .x-btn {
+  margin-left: auto;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.85);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 18px; line-height: 1;
+  display: grid; place-items: center;
+}
+.busy-head .x-btn:active { background: #FFEEF2; color: #B91C5B; }
+.busy-time {
+  margin-left: auto;
+  font-size: 13px; font-weight: 600;
+  color: var(--fg-2);
+  background: rgba(255,255,255,0.7);
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.busy-desc {
+  font-size: 14px; color: var(--fg-2);
+  white-space: pre-wrap; word-break: break-word;
+}
+
+.time-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
 /* Work shifts (main job) — visually muted, striped pattern */
 .shift-row.work-row,
 .shift-row.busy-row {
@@ -828,6 +879,93 @@ textarea { resize: vertical; min-height: 90px; }
   text-align: center;
   letter-spacing: 0.02em;
   color: var(--fg);
+}
+
+/* iOS-style two-column wheel time picker */
+.time-wheel-picker {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.time-wheel-label {
+  font-size: 12px; font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.time-wheel-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  background: var(--bg-2);
+  border: 1.5px solid var(--border);
+  border-radius: 16px;
+  padding: 6px;
+}
+.wheel-wrap {
+  position: relative;
+  height: 168px;            /* 3 visible items × 56px */
+  overflow: hidden;
+  border-radius: 12px;
+  -webkit-mask-image: linear-gradient(180deg,
+    transparent 0,
+    #000 25%,
+    #000 75%,
+    transparent 100%);
+  mask-image: linear-gradient(180deg,
+    transparent 0,
+    #000 25%,
+    #000 75%,
+    transparent 100%);
+}
+.wheel {
+  height: 100%;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  text-align: center;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+.wheel::-webkit-scrollbar { display: none; }
+.wheel-pad { height: 28px; }
+.wheel-item {
+  height: 56px;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  display: flex; align-items: baseline; justify-content: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  opacity: 0.5;
+  transition: opacity .15s, color .15s, font-size .15s;
+}
+.wheel-item .wheel-num {
+  font-size: 26px;
+  font-weight: 700;
+}
+.wheel-item .wheel-suffix {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-left: 2px;
+}
+.wheel-item.sel {
+  opacity: 1;
+  color: var(--fg);
+}
+.wheel-item.sel .wheel-num {
+  font-size: 32px;
+  font-weight: 800;
+}
+.wheel-center-band {
+  position: absolute;
+  left: 4px; right: 4px;
+  top: 56px;             /* (height - itemH) / 2 */
+  height: 56px;
+  border-radius: 10px;
+  background: rgba(139, 111, 224, 0.07);
+  border-top: 1.5px solid rgba(139, 111, 224, 0.25);
+  border-bottom: 1.5px solid rgba(139, 111, 224, 0.25);
+  pointer-events: none;
 }
 
 /* BUTTONS */

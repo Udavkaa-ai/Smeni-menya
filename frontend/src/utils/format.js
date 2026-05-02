@@ -169,94 +169,58 @@ function intersect(setA, setB) {
 const DAY_START = 0;
 const DAY_END   = 24 * 60;
 
-// Compute fine-grained day coverage. Returns:
-//   duty          — covered by anyone on duty
-//   blocked       — both users are busy (work/other) OR a NONE marker is set
-//   suggestSveta  — Maria is busy and no one is on duty → Sveta should take it
-//   suggestMaria  — Sveta is busy and no one is on duty → Maria should take it
-//   free          — both users are free of any commitment → either could take
+// Compute fine-grained day coverage in the SIMPLIFIED model:
+// users only enter BUSY (work/other) intervals. Duty is implicit —
+// whoever isn't busy is "with mom" by default. Existing duty entries
+// from the old model are silently ignored here.
 //
-// Busy = work OR other (any non-duty kind).
+// Returns:
+//   blocked       — both users are busy OR a NONE marker is set
+//   svetaBusy/mariaBusy — each user's busy intervals (merged)
+//   svetaCovers   — Maria is busy, Sveta is not (Sveta is on duty)
+//   mariaCovers   — Sveta is busy, Maria is not (Maria is on duty)
+//   free          — neither is busy → either is with mom by default
 export function computeDayCoverage(shifts) {
   const list = shifts || [];
   const noneMarker = list.find((s) => s.user_name === 'NONE');
   const allDayBlocked = !!noneMarker;
-
-  function intervalsByKind(userName, kindPredicate) {
-    return list
-      .filter((s) => s.user_name === userName && kindPredicate(s.kind))
-      .map((s) => ({ start: timeToMin(s.start_time), end: timeToMin(s.end_time) }))
-      .filter((x) => x.start != null && x.end != null && x.end > x.start);
-  }
-  const isDuty = (k) => k === 'duty' || (k !== 'work' && k !== 'other'); // null/undef -> duty
   const isBusy = (k) => k === 'work' || k === 'other';
 
-  const svetaDuty = intervalsByKind('SVETA', isDuty);
-  const mariaDuty = intervalsByKind('MARIA', isDuty);
-  const svetaBusy = mergeIntervals(intervalsByKind('SVETA', isBusy));
-  const mariaBusy = mergeIntervals(intervalsByKind('MARIA', isBusy));
+  function busyFor(userName) {
+    return mergeIntervals(
+      list
+        .filter((s) => s.user_name === userName && isBusy(s.kind))
+        .map((s) => ({ start: timeToMin(s.start_time), end: timeToMin(s.end_time) }))
+        .filter((x) => x.start != null && x.end != null && x.end > x.start)
+    );
+  }
 
-  const dutyAll = mergeIntervals([...svetaDuty, ...mariaDuty]);
+  const svetaBusy = busyFor('SVETA');
+  const mariaBusy = busyFor('MARIA');
 
-  let blocked = allDayBlocked
+  const blocked = allDayBlocked
     ? [{ start: DAY_START, end: DAY_END }]
     : intersect(svetaBusy, mariaBusy);
 
-  // Suggestions only outside duty time. If duty already covers, no suggestion needed.
-  let suggestMaria = subtract(
-    { start: DAY_START, end: DAY_END },
-    [...mariaBusy, ...mergeIntervals([...dutyAll])] // remove maria-busy and any duty
-  );
-  // Restrict to where Sveta is busy.
-  suggestMaria = svetaBusy.flatMap((sb) =>
-    suggestMaria.flatMap((ms) => {
-      const start = Math.max(sb.start, ms.start);
-      const end = Math.min(sb.end, ms.end);
-      return end > start ? [{ start, end }] : [];
-    })
-  );
+  const svetaCovers = mariaBusy.flatMap((iv) => subtract(iv, svetaBusy));
+  const mariaCovers = svetaBusy.flatMap((iv) => subtract(iv, mariaBusy));
 
-  let suggestSveta = subtract(
-    { start: DAY_START, end: DAY_END },
-    [...svetaBusy, ...mergeIntervals([...dutyAll])]
-  );
-  suggestSveta = mariaBusy.flatMap((mb) =>
-    suggestSveta.flatMap((ss) => {
-      const start = Math.max(mb.start, ss.start);
-      const end = Math.min(mb.end, ss.end);
-      return end > start ? [{ start, end }] : [];
-    })
-  );
-
-  // If everything is blocked already, drop suggestions overlapping blocked.
-  if (blocked.length) {
-    suggestMaria = suggestMaria.flatMap((s) => subtract(s, blocked));
-    suggestSveta = suggestSveta.flatMap((s) => subtract(s, blocked));
-  }
-  // Don't double-count if duty exists during blocked time.
-  if (dutyAll.length) {
-    const result = [];
-    for (const b of blocked) result.push(...subtract(b, dutyAll));
-    blocked = result;
-  }
-
-  // Free = whole day minus everything else.
   const free = subtract(
     { start: DAY_START, end: DAY_END },
-    [
-      ...dutyAll,
-      ...blocked,
-      ...mergeIntervals(suggestMaria),
-      ...mergeIntervals(suggestSveta),
-    ]
+    [...svetaBusy, ...mariaBusy, ...blocked]
   );
 
   return {
     free,
     blocked,
-    duty: dutyAll,
-    suggestSveta: mergeIntervals(suggestSveta),
-    suggestMaria: mergeIntervals(suggestMaria),
+    svetaBusy,
+    mariaBusy,
+    svetaCovers: mergeIntervals(svetaCovers),
+    mariaCovers: mergeIntervals(mariaCovers),
+    // back-compat fields so call sites that destructure don't break:
+    duty: [],
+    suggestSveta: [],
+    suggestMaria: [],
   };
 }
 
@@ -265,26 +229,20 @@ export function intervalLabel(iv) {
 }
 
 // Build a list of contiguous timeline segments covering 0..1440 minutes.
-// States in priority order:
-//   'conflict' — both users on duty
-//   'sveta' / 'maria' — one user on duty
-//   'blocked' — both users busy (work/other) OR explicit NONE marker
-//   'suggest_sveta' — Maria busy, Sveta free, no duty (Sveta should take)
-//   'suggest_maria' — Sveta busy, Maria free, no duty (Maria should take)
-//   'free' — both free, neither on duty
+// In the simplified busy-only model:
+//   'sveta'   — only Sveta is busy   (her color)
+//   'maria'   — only Maria is busy   (her color)
+//   'blocked' — both busy or NONE marker
+//   'free'    — neither is busy (default; either is with mom)
 export function buildTimelineSegments(shifts) {
   const list = shifts || [];
   const isBusy = (k) => k === 'work' || k === 'other';
-  const isDuty = (k) => k === 'duty' || (k !== 'work' && k !== 'other');
-
-  const dutyS = list.filter((s) => s.user_name === 'SVETA' && isDuty(s.kind));
-  const dutyM = list.filter((s) => s.user_name === 'MARIA' && isDuty(s.kind));
   const busyS = list.filter((s) => s.user_name === 'SVETA' && isBusy(s.kind));
   const busyM = list.filter((s) => s.user_name === 'MARIA' && isBusy(s.kind));
   const noneFlag = !!list.find((s) => s.user_name === 'NONE');
 
   const points = new Set([0, 1440]);
-  for (const s of [...dutyS, ...dutyM, ...busyS, ...busyM]) {
+  for (const s of [...busyS, ...busyM]) {
     const a = timeToMin(s.start_time);
     const b = timeToMin(s.end_time);
     if (a == null || b == null || b <= a) continue;
@@ -306,18 +264,13 @@ export function buildTimelineSegments(shifts) {
     const end = sorted[i + 1];
     if (end <= start) continue;
     const mid = (start + end) / 2;
-    const sC = inSet(dutyS, mid);
-    const mC = inSet(dutyM, mid);
     const sB = inSet(busyS, mid);
     const mB = inSet(busyM, mid);
 
     let state = 'free';
-    if (sC && mC) state = 'conflict';
-    else if (sC) state = 'sveta';
-    else if (mC) state = 'maria';
-    else if (noneFlag || (sB && mB)) state = 'blocked';
-    else if (sB) state = 'suggest_maria';
-    else if (mB) state = 'suggest_sveta';
+    if (noneFlag || (sB && mB)) state = 'blocked';
+    else if (sB) state = 'sveta';
+    else if (mB) state = 'maria';
 
     raw.push({ start, end, state });
   }
