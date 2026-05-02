@@ -218,6 +218,77 @@ export function intervalLabel(iv) {
   return `${minToTime(iv.start)}–${minToTime(iv.end)}`;
 }
 
+// Build a list of contiguous timeline segments [{start, end, state}] covering 0..1440 minutes.
+// State priorities (highest wins for the rendered minute):
+//   'conflict' — both users on duty at the same minute
+//   'sveta' / 'maria' — exactly one user on duty
+//   'blocked' — no one on duty AND (NONE marker OR both at work)
+//   'free' — otherwise
+export function buildTimelineSegments(shifts) {
+  const list = shifts || [];
+  const dutyS = list.filter((s) => s.user_name === 'SVETA' && s.kind !== 'work');
+  const dutyM = list.filter((s) => s.user_name === 'MARIA' && s.kind !== 'work');
+  const workS = list.filter((s) => s.user_name === 'SVETA' && s.kind === 'work');
+  const workM = list.filter((s) => s.user_name === 'MARIA' && s.kind === 'work');
+  const noneFlag = !!list.find((s) => s.user_name === 'NONE');
+
+  // Collect all interval boundaries (clamped to 0..1440).
+  const points = new Set([0, 1440]);
+  for (const s of [...dutyS, ...dutyM, ...workS, ...workM]) {
+    const a = timeToMin(s.start_time);
+    const b = timeToMin(s.end_time);
+    if (a == null || b == null || b <= a) continue;
+    points.add(Math.max(0, Math.min(1440, a)));
+    points.add(Math.max(0, Math.min(1440, b)));
+  }
+  const sorted = [...points].sort((a, b) => a - b);
+
+  const inSet = (set, mid) =>
+    set.some((s) => {
+      const a = timeToMin(s.start_time);
+      const b = timeToMin(s.end_time);
+      return a != null && b != null && a < mid && mid < b;
+    });
+
+  const raw = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const start = sorted[i];
+    const end = sorted[i + 1];
+    if (end <= start) continue;
+    const mid = (start + end) / 2;
+    const sC = inSet(dutyS, mid);
+    const mC = inSet(dutyM, mid);
+    const sW = inSet(workS, mid);
+    const mW = inSet(workM, mid);
+
+    let state = 'free';
+    if (sC && mC) state = 'conflict';
+    else if (sC) state = 'sveta';
+    else if (mC) state = 'maria';
+    else if (noneFlag || (sW && mW)) state = 'blocked';
+
+    raw.push({ start, end, state });
+  }
+
+  // Merge consecutive segments with the same state.
+  const merged = [];
+  for (const seg of raw) {
+    const last = merged[merged.length - 1];
+    if (last && last.state === seg.state) last.end = seg.end;
+    else merged.push({ ...seg });
+  }
+  return merged;
+}
+
+// Extract work intervals for a single user as plain {start, end} list, sorted.
+export function workIntervalsFor(shifts, userName) {
+  return (shifts || [])
+    .filter((s) => s.user_name === userName && s.kind === 'work')
+    .map((s) => ({ start: timeToMin(s.start_time), end: timeToMin(s.end_time), id: s.id }))
+    .filter((x) => x.start != null && x.end != null && x.end > x.start)
+    .sort((a, b) => a.start - b.start);
+}
+
 export function todayIso() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;

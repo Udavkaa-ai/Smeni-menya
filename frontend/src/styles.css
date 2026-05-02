@@ -158,8 +158,8 @@ textarea { resize: vertical; min-height: 90px; }
   background: var(--card);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  padding: 14px 16px;
-  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 22px 14px;          /* extra horizontal padding for the work vbars */
+  display: flex; flex-direction: column;
   position: relative;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -167,20 +167,79 @@ textarea { resize: vertical; min-height: 90px; }
   user-select: none;
 }
 .card:active { transform: scale(0.985); box-shadow: var(--shadow-md); }
-.card::before {
-  content: '';
-  position: absolute; left: 0; top: 0; bottom: 0;
+.card .card-content {
+  display: flex; flex-direction: column; gap: 10px;
+}
+
+/* Vertical work bars on left/right edges of the card.
+   Show each user's "основная работа" intervals at proportional positions
+   along the 0-24h vertical axis. Empty bars are still rendered (as a faint
+   track) to preserve symmetry. */
+.work-vbar {
+  position: absolute;
+  top: 8px; bottom: 8px;
   width: 6px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.work-vbar.left  { left: 6px; }
+.work-vbar.right { right: 6px; }
+.work-vbar .vbar-seg {
+  position: absolute;
+  left: 0; right: 0;
+  border-radius: 999px;
+  opacity: 0.85;
+}
+.work-vbar .vbar-seg.sveta { background: var(--color-sveta); }
+.work-vbar .vbar-seg.maria { background: var(--color-maria); }
+
+/* Horizontal timeline strip showing the day's duty allocation.
+   Each segment is a colored block; widths are proportional to duration via flex. */
+.day-timeline {
+  position: relative;
+  margin: 4px 0 6px;
+  user-select: none;
+}
+.day-timeline-track {
+  display: flex;
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
   background: var(--color-free);
-  border-radius: 8px 0 0 8px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
 }
-.card.tone-sveta::before { background: var(--color-sveta); }
-.card.tone-maria::before { background: var(--color-maria); }
-.card.tone-none::before  { background: var(--color-none); }
-.card.tone-free::before  { background: var(--color-free); }
-.card.tone-duo::before {
-  background: linear-gradient(180deg, var(--color-sveta) 0%, var(--color-sveta) 50%, var(--color-maria) 50%, var(--color-maria) 100%);
+.tl-seg { display: block; min-width: 0; }
+.tl-seg.tl-sveta    { background: var(--color-sveta); }
+.tl-seg.tl-maria    { background: var(--color-maria); }
+.tl-seg.tl-blocked  { background: var(--color-none); }
+.tl-seg.tl-free     { background: transparent; }
+.tl-seg.tl-conflict {
+  background: repeating-linear-gradient(
+    -45deg,
+    #EF4444,
+    #EF4444 4px,
+    #FCA5A5 4px,
+    #FCA5A5 8px
+  );
 }
+.day-timeline-axis {
+  position: relative;
+  height: 12px;
+  margin-top: 2px;
+}
+.day-timeline-axis .ax {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.day-timeline-axis .ax:first-child { transform: none; left: 0 !important; }
+.day-timeline-axis .ax:last-child  { transform: none; left: auto !important; right: 0; }
 
 .card.tone-sveta { background: linear-gradient(135deg, #fff 60%, var(--color-sveta-bg)); }
 .card.tone-maria { background: linear-gradient(135deg, #fff 60%, var(--color-maria-bg)); }

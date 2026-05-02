@@ -1,6 +1,8 @@
 import React, { useRef } from 'react';
 import {
-  NAMES, timeRange, computeDayCoverage, intervalLabel, timesOverlap
+  NAMES, timeRange, timesOverlap,
+  computeDayCoverage, intervalLabel, minToTime,
+  buildTimelineSegments, workIntervalsFor,
 } from '../utils/format.js';
 
 const DOW = ['ВС','ПН','ВТ','СР','ЧТ','ПТ','СБ'];
@@ -25,7 +27,6 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
   const work  = sortShifts(allShifts.filter((s) => s.kind === 'work'));
   const none  = allShifts.find((s) => s.user_name === 'NONE');
 
-  // Conflict: two duty shifts of different/same users with overlapping time.
   const conflict = (() => {
     const items = [...sveta, ...maria];
     for (let i = 0; i < items.length; i++) {
@@ -36,8 +37,10 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
     return false;
   })();
 
-  // Auto-detected coverage: free gaps and "no-one-can" intersections of work blocks.
   const { free, blocked } = computeDayCoverage(allShifts);
+  const segments = buildTimelineSegments(allShifts);
+  const svetaWork = workIntervalsFor(allShifts, 'SVETA');
+  const mariaWork = workIntervalsFor(allShifts, 'MARIA');
 
   let cardTone = 'free';
   if (sveta.length && maria.length) cardTone = 'duo';
@@ -89,58 +92,106 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
       onMouseUp={handleEnd}
       onMouseLeave={handleCancel}
     >
-      <div className="row1">
-        <span className="dow">{dow}</span>
-        <span className="date">{dnum}</span>
-        {conflict && <span className="conflict-badge">⚠ накладывается</span>}
+      <WorkVBar intervals={svetaWork} side="left" cls="sveta" label="Света — основная работа" />
+      <WorkVBar intervals={mariaWork} side="right" cls="maria" label="Мария — основная работа" />
+
+      <div className="card-content">
+        <div className="row1">
+          <span className="dow">{dow}</span>
+          <span className="date">{dnum}</span>
+          {conflict && <span className="conflict-badge">⚠ накладывается</span>}
+        </div>
+
+        <Timeline segments={segments} />
+
+        {totalShifts === 0 && (
+          <div className="who">
+            <span className="dot free" />
+            <span className="empty-day">Не назначено</span>
+          </div>
+        )}
+
+        {totalShifts > 0 && (
+          <div className="shifts">
+            {sveta.map((s) => <ShiftRow key={s.id} shift={s} />)}
+            {maria.map((s) => <ShiftRow key={s.id} shift={s} />)}
+            {work.map((s) => <WorkRow key={s.id} shift={s} />)}
+            {none && (
+              <div className="shift-row none-row">
+                <span className="dot none" />
+                <span className="who-name">Никто из нас не сможет</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!none && blocked.length > 0 && (
+          <div className="auto-blocks">
+            {blocked.map((b, i) => (
+              <div key={i} className="auto-blocked">
+                <span className="dot none" />
+                <span>Никто не сможет</span>
+                <span className="time-pill">{intervalLabel(b)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!isFullyFree && free.length > 0 && (
+          <div className="auto-free">
+            {free.map((f, i) => (
+              <div key={i} className="auto-free-row">
+                <span className="dot free" />
+                <span>Свободно</span>
+                <span className="time-pill">{intervalLabel(f)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
 
-      {totalShifts === 0 && (
-        <div className="who">
-          <span className="dot free" />
-          <span className="empty-day">Не назначено</span>
-        </div>
-      )}
+function Timeline({ segments }) {
+  return (
+    <div className="day-timeline" aria-hidden="true">
+      <div className="day-timeline-track">
+        {segments.map((s, i) => (
+          <div
+            key={i}
+            className={`tl-seg tl-${s.state}`}
+            style={{ flex: `${s.end - s.start} 0 0` }}
+            title={`${minToTime(s.start)}–${minToTime(s.end)}`}
+          />
+        ))}
+      </div>
+      <div className="day-timeline-axis">
+        {[0, 6, 12, 18, 24].map((h) => (
+          <span key={h} className="ax" style={{ left: `${(h * 60 / 1440) * 100}%` }}>
+            {h === 24 ? '24' : h}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-      {totalShifts > 0 && (
-        <div className="shifts">
-          {sveta.map((s) => <ShiftRow key={s.id} shift={s} />)}
-          {maria.map((s) => <ShiftRow key={s.id} shift={s} />)}
-          {work.map((s) => <WorkRow key={s.id} shift={s} />)}
-          {none && (
-            <div className="shift-row none-row">
-              <span className="dot none" />
-              <span className="who-name">Никто из нас не сможет</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Auto-detected blocked intervals (intersection of both users' work blocks) */}
-      {!none && blocked.length > 0 && (
-        <div className="auto-blocks">
-          {blocked.map((b, i) => (
-            <div key={i} className="auto-blocked">
-              <span className="dot none" />
-              <span>Никто не сможет</span>
-              <span className="time-pill">{intervalLabel(b)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Auto-detected free segments (only if not the whole 24h or there's something else going on) */}
-      {!isFullyFree && free.length > 0 && (
-        <div className="auto-free">
-          {free.map((f, i) => (
-            <div key={i} className="auto-free-row">
-              <span className="dot free" />
-              <span>Свободно</span>
-              <span className="time-pill">{intervalLabel(f)}</span>
-            </div>
-          ))}
-        </div>
-      )}
+function WorkVBar({ intervals, side, cls, label }) {
+  if (!intervals?.length) return <div className={`work-vbar ${side}`} aria-hidden="true" />;
+  return (
+    <div className={`work-vbar ${side}`} aria-label={label} title={label}>
+      {intervals.map((iv, i) => (
+        <div
+          key={iv.id || i}
+          className={`vbar-seg ${cls}`}
+          style={{
+            top: `${(iv.start / 1440) * 100}%`,
+            height: `${((iv.end - iv.start) / 1440) * 100}%`,
+          }}
+          title={`${minToTime(iv.start)}–${minToTime(iv.end)} основная работа`}
+        />
+      ))}
     </div>
   );
 }
