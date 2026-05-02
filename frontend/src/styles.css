@@ -171,11 +171,17 @@ textarea { resize: vertical; min-height: 90px; }
 }
 .card:active { transform: scale(0.985); box-shadow: var(--shadow-md); }
 .card .card-content {
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: 8px;
+  min-width: 0;
 }
-.card.expanded { padding: 10px 22px 12px; }
-.card.expanded .row1 { margin-bottom: 0; }
-.card.expanded .shifts { gap: 4px; }
+.card { padding: 10px 22px 12px; }
+.card .row1 { margin-bottom: 0; }
+.card .shifts { gap: 4px; }
+.empty-day-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14px;
+  margin-left: 4px;
+}
 
 /* Vertical work bars on left/right edges of the card.
    Show each user's "основная работа" intervals at proportional positions

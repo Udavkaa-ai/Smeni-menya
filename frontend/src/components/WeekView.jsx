@@ -32,10 +32,7 @@ export default function WeekView() {
   const [swapFromDate, setSwapFromDate] = useState(null);
   const [swaps, setSwaps] = useState([]);
   const [showPast, setShowPast] = useState(false);
-  // Days that are visually expanded (showing full details) on the card list.
-  // Today is always expanded; other days expand on first tap.
   const today = todayIso();
-  const [expanded, setExpanded] = useState(() => new Set([today]));
   const me = getUser();
 
   const { data, isLoading } = useQuery({
@@ -120,16 +117,6 @@ export default function WeekView() {
 
   const days = data?.days || [];
 
-  // First tap on a collapsed day expands it inline; second tap opens the editor.
-  // Today is auto-expanded. Long-press always opens swap.
-  function handleCardTap(date) {
-    if (expanded.has(date)) {
-      setOpenDate(date);
-    } else {
-      setExpanded((s) => new Set([...s, date]));
-    }
-  }
-
   const partition = useMemo(() => {
     const past = [];
     const present = [];
@@ -197,9 +184,7 @@ export default function WeekView() {
                     day={d}
                     isToday={d.date === today}
                     isPast
-                    expanded={expanded.has(d.date)}
-                    onTap={() => handleCardTap(d.date)}
-                    onLongPress={() => setSwapFromDate(d.date)}
+                    onTap={() => setOpenDate(d.date)}
                   />
                 ))}
               </div>
@@ -213,9 +198,7 @@ export default function WeekView() {
             key={d.date}
             day={d}
             isToday={d.date === today}
-            expanded={expanded.has(d.date)}
-            onTap={() => handleCardTap(d.date)}
-            onLongPress={() => setSwapFromDate(d.date)}
+            onTap={() => setOpenDate(d.date)}
           />
         ))}
       </div>

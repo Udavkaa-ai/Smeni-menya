@@ -1,7 +1,7 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import {
   NAMES, timeRange, computeDayCoverage, intervalLabel,
-  buildTimelineSegments, workIntervalsFor, minToTime,
+  buildTimelineSegments, minToTime, timeToMin,
 } from '../utils/format.js';
 
 const DOW = ['ВС','ПН','ВТ','СР','ЧТ','ПТ','СБ'];
@@ -19,73 +19,37 @@ function sortShifts(arr) {
 
 const isBusyKind = (s) => s.kind === 'work' || s.kind === 'other';
 
-export default function DayCard({ day, isToday, isPast, expanded = true, onTap, onLongPress }) {
-  const press = useRef({ timer: null, fired: false, x: 0, y: 0, pointerId: null });
-  const lastTap = useRef(0);
+// Always-expanded card. A single tap anywhere opens the editor.
+// No long-press, no collapse/expand state — the simplest possible
+// interaction that survives flaky pointer/touch quirks on iOS.
+export default function DayCard({ day, isToday, isPast, onTap }) {
   const allShifts = day.shifts || [];
-
-  // In the simplified model we only render BUSY entries. Legacy duty entries
-  // sit in DB but are ignored by the UI.
   const svetaBusy = sortShifts(allShifts.filter((s) => s.user_name === 'SVETA' && isBusyKind(s)));
   const mariaBusy = sortShifts(allShifts.filter((s) => s.user_name === 'MARIA' && isBusyKind(s)));
   const none = allShifts.find((s) => s.user_name === 'NONE');
 
   const { blocked } = computeDayCoverage(allShifts);
   const segments = buildTimelineSegments(allShifts);
-  const svetaWork = workIntervalsFor(allShifts, 'SVETA').concat(
-    allShifts
-      .filter((s) => s.user_name === 'SVETA' && s.kind === 'other')
-      .map((s) => ({ start: timeToMinSafe(s.start_time), end: timeToMinSafe(s.end_time), id: s.id }))
+
+  function busyVbar(userName) {
+    return allShifts
+      .filter((s) => s.user_name === userName && isBusyKind(s))
+      .map((s) => ({
+        id: s.id,
+        start: timeToMin(s.start_time),
+        end: timeToMin(s.end_time),
+      }))
       .filter((x) => x.start != null && x.end != null && x.end > x.start)
-  );
-  const mariaWork = workIntervalsFor(allShifts, 'MARIA').concat(
-    allShifts
-      .filter((s) => s.user_name === 'MARIA' && s.kind === 'other')
-      .map((s) => ({ start: timeToMinSafe(s.start_time), end: timeToMinSafe(s.end_time), id: s.id }))
-      .filter((x) => x.start != null && x.end != null && x.end > x.start)
-  );
+      .sort((a, b) => a.start - b.start);
+  }
+  const svetaVbar = busyVbar('SVETA');
+  const mariaVbar = busyVbar('MARIA');
 
   let cardTone = 'free';
   if (none || blocked.length) cardTone = 'none';
   else if (svetaBusy.length && mariaBusy.length) cardTone = 'duo';
   else if (svetaBusy.length) cardTone = 'sveta';
   else if (mariaBusy.length) cardTone = 'maria';
-
-  function handleStart(e) {
-    if (press.current.pointerId != null) return;
-    if (e.target.closest('button, input, textarea, label')) return;
-    press.current.pointerId = e.pointerId;
-    press.current.fired = false;
-    press.current.x = e.clientX;
-    press.current.y = e.clientY;
-    press.current.timer = setTimeout(() => {
-      press.current.fired = true;
-      try { navigator.vibrate?.(15); } catch {}
-      onLongPress?.();
-    }, 500);
-  }
-  function handleMove(e) {
-    if (press.current.pointerId !== e.pointerId) return;
-    if (Math.abs(e.clientX - press.current.x) > 10 || Math.abs(e.clientY - press.current.y) > 10) {
-      clearTimeout(press.current.timer);
-      press.current.pointerId = null;
-    }
-  }
-  function handleEnd(e) {
-    if (press.current.pointerId !== e.pointerId) return;
-    clearTimeout(press.current.timer);
-    const wasLongPress = press.current.fired;
-    press.current.pointerId = null;
-    if (wasLongPress) return;
-    const now = Date.now();
-    if (now - lastTap.current < 350) return;
-    lastTap.current = now;
-    onTap?.();
-  }
-  function handleCancel() {
-    clearTimeout(press.current.timer);
-    press.current.pointerId = null;
-  }
 
   const dt = new Date(day.date + 'T00:00:00Z');
   const dow = DOW[dt.getUTCDay()];
@@ -95,37 +59,30 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
 
   return (
     <div
-      className={`card tone-${cardTone} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''} ${expanded ? 'expanded' : 'collapsed'}`}
-      onPointerDown={handleStart}
-      onPointerMove={handleMove}
-      onPointerUp={handleEnd}
-      onPointerCancel={handleCancel}
-      onPointerLeave={handleCancel}
+      className={`card tone-${cardTone} ${isToday ? 'today' : ''} ${isPast ? 'past' : ''}`}
+      onClick={onTap}
+      role="button"
+      tabIndex={0}
     >
-      <WorkVBar intervals={svetaWork} side="left"  cls="sveta" label="Света — занятость" />
-      <WorkVBar intervals={mariaWork} side="right" cls="maria" label="Мария — занятость" />
+      <WorkVBar intervals={svetaVbar} side="left"  cls="sveta" label="Света — занятость" />
+      <WorkVBar intervals={mariaVbar} side="right" cls="maria" label="Мария — занятость" />
 
       <div className="card-content">
         <div className="row1">
           <span className="dow">{dow}</span>
           <span className="date">{dnum}</span>
-          {!expanded && <span className="expand-hint">▾</span>}
         </div>
 
         <Timeline segments={segments} />
 
-        {!expanded && (
-          <CompactSummary svetaBusy={svetaBusy} mariaBusy={mariaBusy} none={!!none} blocked={blocked} />
-        )}
-
-        {expanded && totalEntries === 0 && (
-          <div className="who">
+        {totalEntries === 0 && !blocked.length && (
+          <div className="empty-day-row">
             <span className="dot free" />
             <span className="empty-day">Все свободны</span>
           </div>
         )}
 
-        {expanded && totalEntries > 0 && (
+        {totalEntries > 0 && (
           <div className="busy-list">
             {svetaBusy.map((s) => <BusyCard key={s.id} shift={s} />)}
             {mariaBusy.map((s) => <BusyCard key={s.id} shift={s} />)}
@@ -133,14 +90,14 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
               <div className="busy-card none">
                 <div className="busy-head">
                   <span className="dot none" />
-                  <b>Никто из нас не сможет</b>
+                  <b>Никто из нас не сможет (весь день)</b>
                 </div>
               </div>
             )}
           </div>
         )}
 
-        {expanded && !none && blocked.length > 0 && (
+        {!none && blocked.length > 0 && (
           <div className="auto-blocks">
             {blocked.map((b, i) => (
               <div key={i} className="auto-blocked">
@@ -154,13 +111,6 @@ export default function DayCard({ day, isToday, isPast, expanded = true, onTap, 
       </div>
     </div>
   );
-}
-
-function timeToMinSafe(t) {
-  if (!t) return null;
-  const [h, m] = t.split(':').map(Number);
-  if (Number.isNaN(h) || Number.isNaN(m)) return null;
-  return h * 60 + m;
 }
 
 function Timeline({ segments }) {
@@ -201,33 +151,6 @@ function WorkVBar({ intervals, side, cls, label }) {
           }}
           title={`${minToTime(iv.start)}–${minToTime(iv.end)} занятость`}
         />
-      ))}
-    </div>
-  );
-}
-
-function CompactSummary({ svetaBusy, mariaBusy, none, blocked }) {
-  const chips = [];
-  if (svetaBusy.length) chips.push({ cls: 'sveta', label: NAMES.SVETA, count: svetaBusy.length });
-  if (mariaBusy.length) chips.push({ cls: 'maria', label: NAMES.MARIA, count: mariaBusy.length });
-  if (none) chips.push({ cls: 'none', label: 'Никто' });
-  else if (blocked.length) chips.push({ cls: 'none', label: 'Никто', count: blocked.length });
-
-  if (chips.length === 0) {
-    return (
-      <div className="compact-summary">
-        <span className="empty-day">Все свободны</span>
-      </div>
-    );
-  }
-  return (
-    <div className="compact-summary">
-      {chips.map((c, i) => (
-        <span key={i} className={`compact-chip chip-${c.cls}`}>
-          <span className={`dot ${c.cls}`} />
-          {c.label}
-          {c.count > 1 ? ` ×${c.count}` : ''}
-        </span>
       ))}
     </div>
   );

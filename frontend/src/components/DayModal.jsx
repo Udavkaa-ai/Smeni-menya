@@ -54,6 +54,27 @@ export default function DayModal({ day, onClose }) {
     setBusy((arr) => [...arr, newDraft()]);
   }
 
+  async function clearDay() {
+    if (!window.confirm('Удалить все мои записи и снять «никто весь день»?')) return;
+    setSaving(true);
+    setError(null);
+    const ops = [];
+    for (const s of busy) {
+      if (s.id) ops.push(api.deleteShift(s.id, s.version).catch(() => {}));
+    }
+    if (noneShift) ops.push(api.deleteShift(noneShift.id, noneShift.version).catch(() => {}));
+    try {
+      await Promise.all(ops);
+      qc.invalidateQueries({ queryKey: ['week'] });
+      setToast('День очищен');
+      onClose();
+    } catch {
+      setError('Не получилось очистить');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function save() {
     setSaving(true);
     setError(null);
@@ -172,6 +193,12 @@ export default function DayModal({ day, onClose }) {
           <input type="checkbox" checked={noOne} onChange={(e) => setNoOne(e.target.checked)} />
           <span>Никто из нас не сможет (весь день)</span>
         </label>
+
+        {(busy.length > 0 || noneShift) && (
+          <button type="button" className="btn danger full" disabled={saving} onClick={clearDay}>
+            Очистить весь день
+          </button>
+        )}
 
         {error && <div style={{ color: '#B91C5B', fontSize: 14, fontWeight: 600 }}>{error}</div>}
 
