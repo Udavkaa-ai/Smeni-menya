@@ -3,18 +3,38 @@ import { query } from './db.js';
 
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@smeni-menya.local';
+const RAW_SUBJECT = (process.env.VAPID_SUBJECT || 'mailto:admin@smeni-menya.local').trim();
+
+// web-push requires the subject to be a mailto: or https: URL.
+// Be forgiving: if a bare email or hostname was provided, normalize it.
+function normalizeSubject(raw) {
+  if (!raw) return null;
+  if (raw.startsWith('mailto:') || raw.startsWith('https://')) return raw;
+  if (raw.includes('@')) return `mailto:${raw}`;
+  if (raw.startsWith('http://')) return raw.replace(/^http:\/\//, 'https://');
+  return `https://${raw}`;
+}
 
 let enabled = false;
-if (VAPID_PUBLIC && VAPID_PRIVATE) {
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
-  enabled = true;
+const VAPID_SUBJECT = normalizeSubject(RAW_SUBJECT);
+
+if (VAPID_PUBLIC && VAPID_PRIVATE && VAPID_SUBJECT) {
+  try {
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
+    enabled = true;
+    if (VAPID_SUBJECT !== RAW_SUBJECT) {
+      console.warn(`[push] normalized VAPID_SUBJECT "${RAW_SUBJECT}" -> "${VAPID_SUBJECT}"`);
+    }
+    console.log('[push] enabled');
+  } catch (err) {
+    console.warn('[push] invalid VAPID config, push disabled:', err.message);
+  }
 } else {
   console.warn('[push] VAPID keys not set, push notifications disabled');
 }
 
 export function getPublicKey() {
-  return VAPID_PUBLIC || null;
+  return enabled ? VAPID_PUBLIC : null;
 }
 
 export async function saveSubscription(user, subscription) {
