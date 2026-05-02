@@ -86,20 +86,25 @@ async function ensureUsers() {
 }
 
 // One-time idempotent migration: copy any old `days` rows into `shifts`.
-// Old model had one assignee per day; new model has up to one shift per (date, user).
+// Old model had one assignee per day; new model has shifts keyed by id.
+// We use NOT EXISTS instead of ON CONFLICT because shifts no longer has a
+// (date, user_name) unique constraint.
 async function migrateDaysToShifts() {
   await pool.query(`
     INSERT INTO shifts (date, user_name, start_time, end_time, description, is_work_day, updated_by, updated_at)
-    SELECT date, assigned_to,
-           NULLIF(start_time, ''),
-           NULLIF(end_time, ''),
-           COALESCE(description, ''),
-           COALESCE(is_work_day, false),
-           updated_by,
-           COALESCE(updated_at, NOW())
-    FROM days
-    WHERE assigned_to IS NOT NULL
-    ON CONFLICT (date, user_name) DO NOTHING;
+    SELECT d.date, d.assigned_to,
+           NULLIF(d.start_time, ''),
+           NULLIF(d.end_time, ''),
+           COALESCE(d.description, ''),
+           COALESCE(d.is_work_day, false),
+           d.updated_by,
+           COALESCE(d.updated_at, NOW())
+    FROM days d
+    WHERE d.assigned_to IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM shifts s
+         WHERE s.date = d.date AND s.user_name = d.assigned_to
+      );
   `);
 }
 

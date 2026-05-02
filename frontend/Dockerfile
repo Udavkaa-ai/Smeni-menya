@@ -12,6 +12,9 @@ RUN npm run build
 FROM nginx:1.27-alpine
 # Use nginx env-var template substitution at startup.
 COPY nginx.conf /etc/nginx/templates/default.conf.template
+# Auto-detect DNS resolver from /etc/resolv.conf at boot (runs before envsubst).
+COPY docker-entrypoint.d/15-set-resolver.sh /docker-entrypoint.d/15-set-resolver.sh
+RUN chmod +x /docker-entrypoint.d/15-set-resolver.sh
 COPY --from=build /app/dist /usr/share/nginx/html
 
 # Defaults — override via Railway / docker-compose env.
