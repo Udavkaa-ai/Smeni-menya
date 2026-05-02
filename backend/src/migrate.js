@@ -23,8 +23,9 @@ CREATE TABLE IF NOT EXISTS days (
   version INT DEFAULT 1
 );
 
--- Per-user shift entries: each user can independently mark her own shift on a date.
--- A special pseudo-user 'NONE' represents "никто из нас не сможет".
+-- Per-user shift entries: each user can mark one or more shifts on a date.
+-- A special pseudo-user 'NONE' represents "никто из нас не сможет"
+-- (only one NONE marker per date, enforced by partial unique index below).
 CREATE TABLE IF NOT EXISTS shifts (
   id SERIAL PRIMARY KEY,
   date DATE NOT NULL,
@@ -35,11 +36,16 @@ CREATE TABLE IF NOT EXISTS shifts (
   is_work_day BOOLEAN DEFAULT false,
   updated_by TEXT,
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  version INT DEFAULT 1,
-  UNIQUE (date, user_name)
+  version INT DEFAULT 1
 );
 
 CREATE INDEX IF NOT EXISTS shifts_date_idx ON shifts(date);
+
+-- v1 had UNIQUE (date, user_name) — drop it to allow multiple shifts per user.
+ALTER TABLE shifts DROP CONSTRAINT IF EXISTS shifts_date_user_name_key;
+
+-- Keep NONE marker globally unique per date.
+CREATE UNIQUE INDEX IF NOT EXISTS shifts_none_unique ON shifts(date) WHERE user_name = 'NONE';
 
 CREATE TABLE IF NOT EXISTS swap_requests (
   id SERIAL PRIMARY KEY,

@@ -368,6 +368,45 @@ textarea { resize: vertical; min-height: 90px; }
   font-size: 16px;
   padding: 14px 16px;
 }
+.checkbox-row.compact {
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+/* My-shift editable card inside DayModal */
+.my-shift {
+  background: var(--bg-2);
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 10px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.my-shift-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14px; font-weight: 700;
+}
+.my-shift-head .x-btn {
+  margin-left: auto;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.85);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 18px; line-height: 1;
+  display: grid; place-items: center;
+}
+.my-shift-head .x-btn:active { background: #FFEEF2; color: #B91C5B; }
+
+.add-shift {
+  margin-top: 4px;
+}
+
+.empty-mine {
+  font-size: 14px; color: var(--muted);
+  font-style: italic;
+  padding: 10px 0 12px 4px;
+}
 
 /* Password field with eye toggle */
 .password-field {

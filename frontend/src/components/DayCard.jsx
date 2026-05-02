@@ -10,24 +10,36 @@ function shiftClass(user) {
   return 'free';
 }
 
+function sortShifts(arr) {
+  return [...arr].sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+}
+
 export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
   const press = useRef({ timer: null, fired: false, x: 0, y: 0 });
-  const shifts = day.shifts || [];
+  const allShifts = day.shifts || [];
 
-  const sveta = shifts.find((s) => s.user_name === 'SVETA');
-  const maria = shifts.find((s) => s.user_name === 'MARIA');
-  const none  = shifts.find((s) => s.user_name === 'NONE');
+  const sveta = sortShifts(allShifts.filter((s) => s.user_name === 'SVETA'));
+  const maria = sortShifts(allShifts.filter((s) => s.user_name === 'MARIA'));
+  const none  = allShifts.find((s) => s.user_name === 'NONE');
 
-  const conflict =
-    (sveta && maria && timesOverlap(sveta, maria)) ||
-    (none && (sveta || maria));
+  // Conflict: any pair of shifts (same or different user) with overlapping times,
+  // OR NONE marker plus any real shift.
+  const conflict = (() => {
+    const items = [...sveta, ...maria];
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        if (timesOverlap(items[i], items[j])) return true;
+      }
+    }
+    if (none && (sveta.length || maria.length)) return true;
+    return false;
+  })();
 
-  // Overall card tone: prefer 'sveta'/'maria' if present, then 'none', else 'free'.
   let cardTone = 'free';
-  if (sveta && maria) cardTone = 'duo';
-  else if (sveta) cardTone = 'sveta';
-  else if (maria) cardTone = 'maria';
-  else if (none)  cardTone = 'none';
+  if (sveta.length && maria.length) cardTone = 'duo';
+  else if (sveta.length) cardTone = 'sveta';
+  else if (maria.length) cardTone = 'maria';
+  else if (none) cardTone = 'none';
 
   function handleStart(e) {
     const p = e.touches ? e.touches[0] : e;
@@ -58,7 +70,8 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
   const dow = DOW[dt.getUTCDay()];
   const dnum = dt.getUTCDate();
 
-  const anyWork = shifts.some((s) => s.is_work_day);
+  const anyWork = allShifts.some((s) => s.is_work_day);
+  const totalShifts = sveta.length + maria.length + (none ? 1 : 0);
 
   return (
     <div
@@ -79,17 +92,17 @@ export default function DayCard({ day, isToday, isPast, onTap, onLongPress }) {
         {conflict && <span className="conflict-badge">⚠ накладывается</span>}
       </div>
 
-      {shifts.length === 0 && (
+      {totalShifts === 0 && (
         <div className="who">
           <span className="dot free" />
           <span className="empty-day">Не назначено</span>
         </div>
       )}
 
-      {shifts.length > 0 && (
+      {totalShifts > 0 && (
         <div className="shifts">
-          {sveta && <ShiftRow shift={sveta} />}
-          {maria && <ShiftRow shift={maria} />}
+          {sveta.map((s) => <ShiftRow key={s.id} shift={s} />)}
+          {maria.map((s) => <ShiftRow key={s.id} shift={s} />)}
           {none && (
             <div className="shift-row none-row">
               <span className="dot none" />

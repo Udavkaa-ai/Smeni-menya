@@ -153,10 +153,10 @@ app.get('/week', authMiddleware, async (req, res) => {
   });
 });
 
-// Upsert a shift. Body:
-//   { date, user_name, start_time, end_time, description, is_work_day, version }
-// You can only edit your own shift, or the shared 'NONE' marker.
-app.put('/shift', authMiddleware, async (req, res) => {
+// Create a new shift. Body:
+//   { date, user_name, start_time, end_time, description, is_work_day }
+// You can only create your own shift, or the shared 'NONE' marker.
+app.post('/shift', authMiddleware, async (req, res) => {
   const {
     date,
     user_name,
@@ -164,7 +164,6 @@ app.put('/shift', authMiddleware, async (req, res) => {
     end_time = null,
     description = '',
     is_work_day = false,
-    version = 0,
   } = req.body || {};
 
   if (!isValidIso(date)) return res.status(400).json({ error: 'bad_date' });
@@ -174,37 +173,67 @@ app.put('/shift', authMiddleware, async (req, res) => {
   if (user_name !== req.user.name && user_name !== 'NONE') {
     return res.status(403).json({ error: 'cannot_edit_other_user' });
   }
-  if (!Number.isInteger(version) || version < 0) {
+
+  try {
+    const ins = await query(
+      `INSERT INTO shifts
+          (date, user_name, start_time, end_time, description, is_work_day, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [
+        date,
+        user_name,
+        start_time || null,
+        end_time || null,
+        description || '',
+        !!is_work_day,
+        req.user.name,
+      ]
+    );
+    const shift = formatShift(ins.rows[0]);
+
+    broadcast('SHIFT_UPSERTED', { shift, action: 'added' }, req.user.name);
+    notifyUser(otherUser(req.user.name), buildShiftNotification({
+      action: 'added', by: req.user.name, shift, prev: null,
+    }));
+    audit(req.user.name, 'SHIFT_ADDED', { shift });
+
+    res.json(shift);
+  } catch (err) {
+    if (err.code === '23505') {
+      // unique violation — only thrown for duplicate NONE per date
+      return res.status(409).json({ error: 'duplicate_none' });
+    }
+    console.error('[shift POST] error:', err);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+// Update a shift by id. Body:
+//   { start_time, end_time, description, is_work_day, version }
+app.patch('/shift/:id', authMiddleware, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad_id' });
+
+  const {
+    start_time = null,
+    end_time = null,
+    description = '',
+    is_work_day = false,
+    version,
+  } = req.body || {};
+
+  if (!Number.isInteger(version) || version < 1) {
     return res.status(400).json({ error: 'bad_version' });
   }
 
   try {
     const result = await withTransaction(async (client) => {
-      const cur = await client.query(
-        'SELECT * FROM shifts WHERE date = $1 AND user_name = $2 FOR UPDATE',
-        [date, user_name]
-      );
-
-      if (cur.rowCount === 0) {
-        if (version > 0) return { status: 404, body: { error: 'not_found' } };
-        const ins = await client.query(
-          `INSERT INTO shifts
-              (date, user_name, start_time, end_time, description, is_work_day, updated_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-          [
-            date,
-            user_name,
-            start_time || null,
-            end_time || null,
-            description || '',
-            !!is_work_day,
-            req.user.name,
-          ]
-        );
-        return { status: 200, action: 'added', body: ins.rows[0], prev: null };
-      }
-
+      const cur = await client.query('SELECT * FROM shifts WHERE id = $1 FOR UPDATE', [id]);
+      if (cur.rowCount === 0) return { status: 404, body: { error: 'not_found' } };
       const prev = formatShift(cur.rows[0]);
+      if (prev.user_name !== req.user.name && prev.user_name !== 'NONE') {
+        return { status: 403, body: { error: 'cannot_edit_other_user' } };
+      }
       if (prev.version !== version) {
         return { status: 409, body: { error: 'version_conflict', current: prev } };
       }
@@ -224,62 +253,49 @@ app.put('/shift', authMiddleware, async (req, res) => {
           description || '',
           !!is_work_day,
           req.user.name,
-          cur.rows[0].id,
+          id,
         ]
       );
-      return { status: 200, action: 'updated', body: upd.rows[0], prev };
+      return { status: 200, body: upd.rows[0], prev };
     });
 
     if (result.status !== 200) return res.status(result.status).json(result.body || {});
 
     const shift = formatShift(result.body);
-    broadcast('SHIFT_UPSERTED', { shift, action: result.action }, req.user.name);
-
-    const notification = buildShiftNotification({
-      action: result.action,
-      by: req.user.name,
-      shift,
-      prev: result.prev,
-    });
-    notifyUser(otherUser(req.user.name), notification);
-    audit(req.user.name, `SHIFT_${result.action.toUpperCase()}`, { shift, prev: result.prev });
+    broadcast('SHIFT_UPSERTED', { shift, action: 'updated' }, req.user.name);
+    notifyUser(otherUser(req.user.name), buildShiftNotification({
+      action: 'updated', by: req.user.name, shift, prev: result.prev,
+    }));
+    audit(req.user.name, 'SHIFT_UPDATED', { shift, prev: result.prev });
 
     res.json(shift);
   } catch (err) {
-    console.error('[shift PUT] error:', err);
+    console.error('[shift PATCH] error:', err);
     res.status(500).json({ error: 'server_error' });
   }
 });
 
-// Delete a shift. Query params: date, user_name, version
-app.delete('/shift', authMiddleware, async (req, res) => {
-  const date = req.query.date;
-  const user_name = req.query.user_name;
+// Delete a shift by id. Query: version
+app.delete('/shift/:id', authMiddleware, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad_id' });
   const version = Number(req.query.version);
-
-  if (!isValidIso(date)) return res.status(400).json({ error: 'bad_date' });
-  if (!['SVETA', 'MARIA', 'NONE'].includes(user_name)) {
-    return res.status(400).json({ error: 'bad_user' });
-  }
-  if (user_name !== req.user.name && user_name !== 'NONE') {
-    return res.status(403).json({ error: 'cannot_edit_other_user' });
-  }
   if (!Number.isInteger(version) || version < 1) {
     return res.status(400).json({ error: 'bad_version' });
   }
 
   try {
     const result = await withTransaction(async (client) => {
-      const cur = await client.query(
-        'SELECT * FROM shifts WHERE date = $1 AND user_name = $2 FOR UPDATE',
-        [date, user_name]
-      );
+      const cur = await client.query('SELECT * FROM shifts WHERE id = $1 FOR UPDATE', [id]);
       if (cur.rowCount === 0) return { status: 404, body: { error: 'not_found' } };
       const prev = formatShift(cur.rows[0]);
+      if (prev.user_name !== req.user.name && prev.user_name !== 'NONE') {
+        return { status: 403, body: { error: 'cannot_edit_other_user' } };
+      }
       if (prev.version !== version) {
         return { status: 409, body: { error: 'version_conflict', current: prev } };
       }
-      await client.query('DELETE FROM shifts WHERE id = $1', [cur.rows[0].id]);
+      await client.query('DELETE FROM shifts WHERE id = $1', [id]);
       return { status: 200, prev };
     });
 
@@ -287,20 +303,15 @@ app.delete('/shift', authMiddleware, async (req, res) => {
 
     broadcast(
       'SHIFT_REMOVED',
-      { date, user_name, prev: result.prev },
+      { id, date: result.prev.date, user_name: result.prev.user_name, prev: result.prev },
       req.user.name
     );
-
-    const notification = buildShiftNotification({
-      action: 'removed',
-      by: req.user.name,
-      shift: null,
-      prev: result.prev,
-    });
-    notifyUser(otherUser(req.user.name), notification);
+    notifyUser(otherUser(req.user.name), buildShiftNotification({
+      action: 'removed', by: req.user.name, shift: null, prev: result.prev,
+    }));
     audit(req.user.name, 'SHIFT_REMOVED', { prev: result.prev });
 
-    res.json({ ok: true, date, user_name });
+    res.json({ ok: true, id });
   } catch (err) {
     console.error('[shift DELETE] error:', err);
     res.status(500).json({ error: 'server_error' });

@@ -61,20 +61,20 @@ export default function WeekView() {
             ...prev,
             days: prev.days.map((d) => {
               if (d.date !== shift.date) return d;
-              const others = (d.shifts || []).filter((s) => s.user_name !== shift.user_name);
-              return { ...d, shifts: [...others, shift].sort((a, b) => a.user_name.localeCompare(b.user_name)) };
+              const others = (d.shifts || []).filter((s) => s.id !== shift.id);
+              return { ...d, shifts: [...others, shift] };
             }),
           };
         });
       } else if (msg.type === 'SHIFT_REMOVED') {
-        const { date, user_name } = msg.payload || {};
+        const { id, date } = msg.payload || {};
         qc.setQueriesData({ queryKey: ['week'] }, (prev) => {
           if (!prev) return prev;
           if (!prev.days.some((d) => d.date === date)) return prev;
           return {
             ...prev,
             days: prev.days.map((d) =>
-              d.date !== date ? d : { ...d, shifts: (d.shifts || []).filter((s) => s.user_name !== user_name) }
+              d.date !== date ? d : { ...d, shifts: (d.shifts || []).filter((s) => s.id !== id) }
             ),
           };
         });

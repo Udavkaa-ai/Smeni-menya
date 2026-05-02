@@ -1,8 +1,20 @@
 import React, { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { api, getUser } from '../api/client.js';
 import { useWeekStore } from '../store/useWeekStore.js';
 import { ruDateLong, NAMES, timeRange } from '../utils/format.js';
+
+// Each editable item has either { id, version, ... } (existing) or { _new: true, ... } (new).
+function defaultDraft() {
+  return {
+    _new: true,
+    _localId: Math.random().toString(36).slice(2),
+    start_time: '09:00',
+    end_time: '18:00',
+    description: '',
+    is_work_day: false,
+  };
+}
 
 export default function DayModal({ day, onClose }) {
   const me = getUser();
@@ -10,72 +22,68 @@ export default function DayModal({ day, onClose }) {
   const setToast = useWeekStore((s) => s.setToast);
   const qc = useQueryClient();
 
-  const myShift = day.shifts.find((s) => s.user_name === me) || null;
-  const theirShift = day.shifts.find((s) => s.user_name === other) || null;
-  const noneShift = day.shifts.find((s) => s.user_name === 'NONE') || null;
+  const initialMine = (day.shifts || [])
+    .filter((s) => s.user_name === me)
+    .map((s) => ({ ...s }));
+  const theirShifts = (day.shifts || []).filter((s) => s.user_name === other);
+  const noneShift   = (day.shifts || []).find((s) => s.user_name === 'NONE');
 
-  const [taking, setTaking] = useState(!!myShift);
-  const [startTime, setStartTime] = useState(myShift?.start_time || '09:00');
-  const [endTime, setEndTime] = useState(myShift?.end_time || '18:00');
-  const [description, setDescription] = useState(myShift?.description || '');
-  const [isWork, setIsWork] = useState(!!myShift?.is_work_day);
+  const [mine, setMine] = useState(initialMine);
+  const [removed, setRemoved] = useState([]); // ids of existing shifts user removed
   const [noOne, setNoOne] = useState(!!noneShift);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
   const title = ruDateLong(day.date);
 
-  const upsertMine = useMutation({
-    mutationFn: () =>
-      api.putShift({
-        date: day.date,
-        user_name: me,
-        start_time: startTime,
-        end_time: endTime,
-        description,
-        is_work_day: isWork,
-        version: myShift?.version ?? 0,
-      }),
-  });
-
-  const removeMine = useMutation({
-    mutationFn: () =>
-      api.deleteShift({
-        date: day.date,
-        user_name: me,
-        version: myShift.version,
-      }),
-  });
-
-  const upsertNone = useMutation({
-    mutationFn: () =>
-      api.putShift({
-        date: day.date,
-        user_name: 'NONE',
-        version: noneShift?.version ?? 0,
-      }),
-  });
-
-  const removeNone = useMutation({
-    mutationFn: () =>
-      api.deleteShift({
-        date: day.date,
-        user_name: 'NONE',
-        version: noneShift.version,
-      }),
-  });
+  function updateOne(idx, patch) {
+    setMine((arr) => arr.map((s, i) => (i === idx ? { ...s, ...patch, _dirty: !s._new } : s)));
+  }
+  function removeOne(idx) {
+    setMine((arr) => {
+      const item = arr[idx];
+      if (item.id) setRemoved((r) => [...r, { id: item.id, version: item.version }]);
+      return arr.filter((_, i) => i !== idx);
+    });
+  }
+  function addOne() {
+    setMine((arr) => [...arr, defaultDraft()]);
+  }
 
   async function save() {
+    setBusy(true);
     setError(null);
     try {
-      // 1. Sync NONE marker
-      if (noOne && !noneShift) await upsertNone.mutateAsync();
-      else if (!noOne && noneShift) await removeNone.mutateAsync();
-
-      // 2. Sync my shift
-      if (taking) {
-        await upsertMine.mutateAsync();
-      } else if (myShift) {
-        await removeMine.mutateAsync();
+      // 1) Removed shifts → DELETE
+      for (const r of removed) {
+        await api.deleteShift(r.id, r.version);
+      }
+      // 2) Mine: new → POST, existing dirty → PATCH
+      for (const s of mine) {
+        if (s._new) {
+          await api.postShift({
+            date: day.date,
+            user_name: me,
+            start_time: s.start_time,
+            end_time: s.end_time,
+            description: s.description,
+            is_work_day: s.is_work_day,
+          });
+        } else if (s._dirty) {
+          await api.patchShift(s.id, {
+            start_time: s.start_time,
+            end_time: s.end_time,
+            description: s.description,
+            is_work_day: s.is_work_day,
+            version: s.version,
+          });
+        }
+      }
+      // 3) NONE marker sync
+      if (noOne && !noneShift) {
+        await api.postShift({ date: day.date, user_name: 'NONE' });
+      } else if (!noOne && noneShift) {
+        await api.deleteShift(noneShift.id, noneShift.version);
       }
 
       qc.invalidateQueries({ queryKey: ['week'] });
@@ -89,63 +97,82 @@ export default function DayModal({ day, onClose }) {
       } else {
         setError('Не удалось сохранить');
       }
+    } finally {
+      setBusy(false);
     }
   }
-
-  const busy = upsertMine.isPending || removeMine.isPending || upsertNone.isPending || removeNone.isPending;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>{title}</h2>
 
-        {theirShift && (
-          <div className={`other-shift ${other === 'SVETA' ? 'sveta' : 'maria'}`}>
-            <div className="other-head">
-              <span className={`dot ${other === 'SVETA' ? 'sveta' : 'maria'}`} />
-              <b>{NAMES[other]}</b> уже записалась
-            </div>
-            {(theirShift.start_time || theirShift.end_time) && (
-              <div className="other-time">{timeRange(theirShift.start_time, theirShift.end_time)}</div>
-            )}
-            {theirShift.description && <div className="other-desc">{theirShift.description}</div>}
+        {theirShifts.length > 0 && (
+          <div>
+            <span className="label">Смены {NAMES[other]}</span>
+            {theirShifts.map((s) => (
+              <div key={s.id} className={`other-shift ${other === 'SVETA' ? 'sveta' : 'maria'}`}>
+                <div className="other-head">
+                  <span className={`dot ${other === 'SVETA' ? 'sveta' : 'maria'}`} />
+                  <b>{NAMES[other]}</b>
+                  {(s.start_time || s.end_time) && (
+                    <span className="other-time">{timeRange(s.start_time, s.end_time)}</span>
+                  )}
+                </div>
+                {s.description && <div className="other-desc">{s.description}</div>}
+              </div>
+            ))}
           </div>
         )}
 
-        <label className="checkbox-row big">
-          <input
-            type="checkbox"
-            checked={taking}
-            onChange={(e) => setTaking(e.target.checked)}
-          />
-          <span><b>Я беру этот день</b></span>
-        </label>
-
-        {taking && (
-          <>
-            <div>
-              <span className="label">Время</span>
-              <div className="time-row">
-                <input type="time" value={startTime || ''} onChange={(e) => setStartTime(e.target.value)} />
-                <input type="time" value={endTime || ''} onChange={(e) => setEndTime(e.target.value)} />
+        <div>
+          <span className="label">Мои смены</span>
+          {mine.length === 0 && (
+            <div className="empty-mine">Вы пока не записаны на этот день</div>
+          )}
+          {mine.map((s, idx) => (
+            <div key={s.id || s._localId} className="my-shift">
+              <div className="my-shift-head">
+                <span className={`dot ${me === 'SVETA' ? 'sveta' : 'maria'}`} />
+                <b>{NAMES[me]}</b>
+                <button
+                  type="button"
+                  className="x-btn"
+                  onClick={() => removeOne(idx)}
+                  aria-label="Удалить смену"
+                >×</button>
               </div>
-            </div>
-
-            <div>
-              <span className="label">Описание (лекарства, прогулка, дела…)</span>
+              <div className="time-row">
+                <input
+                  type="time"
+                  value={s.start_time || ''}
+                  onChange={(e) => updateOne(idx, { start_time: e.target.value })}
+                />
+                <input
+                  type="time"
+                  value={s.end_time || ''}
+                  onChange={(e) => updateOne(idx, { end_time: e.target.value })}
+                />
+              </div>
               <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Например: Лекарства в 14:00, прогулка после обеда"
+                value={s.description || ''}
+                onChange={(e) => updateOne(idx, { description: e.target.value })}
+                placeholder="Описание (лекарства, прогулка…)"
               />
+              <label className="checkbox-row compact">
+                <input
+                  type="checkbox"
+                  checked={!!s.is_work_day}
+                  onChange={(e) => updateOne(idx, { is_work_day: e.target.checked })}
+                />
+                <span>Это мой основной рабочий день</span>
+              </label>
             </div>
-
-            <label className="checkbox-row">
-              <input type="checkbox" checked={isWork} onChange={(e) => setIsWork(e.target.checked)} />
-              <span>Это мой основной рабочий день</span>
-            </label>
-          </>
-        )}
+          ))}
+          <button type="button" className="btn ghost full add-shift" onClick={addOne}>
+            + Добавить смену
+          </button>
+        </div>
 
         <label className="checkbox-row">
           <input
