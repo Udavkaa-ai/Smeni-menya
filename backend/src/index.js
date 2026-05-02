@@ -146,22 +146,29 @@ app.get('/week', authMiddleware, async (req, res) => {
   if (!isValidIso(start)) return res.status(400).json({ error: 'bad_start_date' });
   const dates = Array.from({ length: 7 }, (_, i) => addDays(start, i));
   const end = dates[6];
+  // Pull one extra day before the week so the client can show the
+  // overnight tails of shifts that start on the prior evening.
+  const prev = addDays(start, -1);
 
   const { rows } = await query(
     `SELECT * FROM shifts
       WHERE date >= $1 AND date <= $2
       ORDER BY date, user_name`,
-    [start, end]
+    [prev, end]
   );
 
+  const prevShifts = [];
   const byDate = new Map(dates.map((d) => [d, []]));
   for (const r of rows) {
     const dateStr = ymd(r.date);
-    if (byDate.has(dateStr)) byDate.get(dateStr).push(formatShift(r));
+    const fmt = formatShift(r);
+    if (dateStr === prev) prevShifts.push(fmt);
+    else if (byDate.has(dateStr)) byDate.get(dateStr).push(fmt);
   }
 
   res.json({
     start,
+    prev_shifts: prevShifts,
     days: dates.map((date) => ({ date, shifts: byDate.get(date) || [] })),
   });
 });

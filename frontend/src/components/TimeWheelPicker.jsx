@@ -40,7 +40,6 @@ function Wheel({ values, value, onChange, suffix }) {
     <div className="wheel-wrap" aria-label={suffix}>
       <div className="wheel" ref={scrollRef} onScroll={onScroll}>
         <div className="wheel-pad" />
-        <div className="wheel-pad" />
         {values.map((v) => (
           <div
             key={v}
@@ -50,7 +49,6 @@ function Wheel({ values, value, onChange, suffix }) {
             {suffix && <span className="wheel-suffix">{suffix}</span>}
           </div>
         ))}
-        <div className="wheel-pad" />
         <div className="wheel-pad" />
       </div>
       {/* Subtle highlight band over the centered slot */}

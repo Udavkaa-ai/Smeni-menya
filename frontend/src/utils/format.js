@@ -99,6 +99,13 @@ function trim(s, n) {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
+// True if a shift wraps past midnight (e.g. 21:00–04:00).
+export function isOvernight(shift) {
+  const a = timeToMin(shift?.start_time);
+  const b = timeToMin(shift?.end_time);
+  return a != null && b != null && b < a;
+}
+
 // Time overlap check for HH:MM strings.
 export function timesOverlap(a, b) {
   if (!a?.start_time || !a?.end_time) return false;
@@ -180,19 +187,41 @@ const DAY_END   = 24 * 60;
 //   svetaCovers   — Maria is busy, Sveta is not (Sveta is on duty)
 //   mariaCovers   — Sveta is busy, Maria is not (Maria is on duty)
 //   free          — neither is busy → either is with mom by default
-export function computeDayCoverage(shifts) {
+// Given a shift that may be overnight (end_time < start_time), return the
+// intervals it occupies on the SAME day. An overnight shift shows up as
+// (start, 24:00) on its own date; the (00:00, end) tail is added separately
+// to the NEXT day via prev_shifts.
+function intervalsOnDay(shift) {
+  const a = timeToMin(shift.start_time);
+  const b = timeToMin(shift.end_time);
+  if (a == null || b == null) return [];
+  if (b > a) return [{ start: a, end: b }];
+  if (b < a) return [{ start: a, end: 1440 }];
+  return [];
+}
+
+// Given a previous-day shift, return the (00:00, end) tail it adds to today.
+function tailFromPrevDay(shift) {
+  const a = timeToMin(shift.start_time);
+  const b = timeToMin(shift.end_time);
+  if (a == null || b == null || b >= a) return [];
+  return [{ start: 0, end: b }];
+}
+
+export function computeDayCoverage(shifts, prevShifts = []) {
   const list = shifts || [];
   const noneMarker = list.find((s) => s.user_name === 'NONE');
   const allDayBlocked = !!noneMarker;
   const isBusy = (k) => k === 'work' || k === 'other';
 
   function busyFor(userName) {
-    return mergeIntervals(
-      list
-        .filter((s) => s.user_name === userName && isBusy(s.kind))
-        .map((s) => ({ start: timeToMin(s.start_time), end: timeToMin(s.end_time) }))
-        .filter((x) => x.start != null && x.end != null && x.end > x.start)
-    );
+    const own = list
+      .filter((s) => s.user_name === userName && isBusy(s.kind))
+      .flatMap(intervalsOnDay);
+    const tails = (prevShifts || [])
+      .filter((s) => s.user_name === userName && isBusy(s.kind))
+      .flatMap(tailFromPrevDay);
+    return mergeIntervals([...own, ...tails]);
   }
 
   const svetaBusy = busyFor('SVETA');
@@ -234,29 +263,33 @@ export function intervalLabel(iv) {
 //   'maria'   — only Maria is busy   (her color)
 //   'blocked' — both busy or NONE marker
 //   'free'    — neither is busy (default; either is with mom)
-export function buildTimelineSegments(shifts) {
+export function buildTimelineSegments(shifts, prevShifts = []) {
   const list = shifts || [];
   const isBusy = (k) => k === 'work' || k === 'other';
-  const busyS = list.filter((s) => s.user_name === 'SVETA' && isBusy(s.kind));
-  const busyM = list.filter((s) => s.user_name === 'MARIA' && isBusy(s.kind));
   const noneFlag = !!list.find((s) => s.user_name === 'NONE');
 
+  // For each user, expand busy entries into [{start,end}] intervals
+  // that respect overnight wrapping AND tail-from-prev-day.
+  function intervalsOf(user) {
+    const own = list
+      .filter((s) => s.user_name === user && isBusy(s.kind))
+      .flatMap(intervalsOnDay);
+    const tails = (prevShifts || [])
+      .filter((s) => s.user_name === user && isBusy(s.kind))
+      .flatMap(tailFromPrevDay);
+    return [...own, ...tails];
+  }
+  const intsS = intervalsOf('SVETA');
+  const intsM = intervalsOf('MARIA');
+
   const points = new Set([0, 1440]);
-  for (const s of [...busyS, ...busyM]) {
-    const a = timeToMin(s.start_time);
-    const b = timeToMin(s.end_time);
-    if (a == null || b == null || b <= a) continue;
-    points.add(Math.max(0, Math.min(1440, a)));
-    points.add(Math.max(0, Math.min(1440, b)));
+  for (const iv of [...intsS, ...intsM]) {
+    points.add(iv.start);
+    points.add(iv.end);
   }
   const sorted = [...points].sort((a, b) => a - b);
 
-  const inSet = (set, mid) =>
-    set.some((s) => {
-      const a = timeToMin(s.start_time);
-      const b = timeToMin(s.end_time);
-      return a != null && b != null && a < mid && mid < b;
-    });
+  const inSet = (set, mid) => set.some((iv) => iv.start < mid && mid < iv.end);
 
   const raw = [];
   for (let i = 0; i < sorted.length - 1; i++) {
@@ -264,8 +297,8 @@ export function buildTimelineSegments(shifts) {
     const end = sorted[i + 1];
     if (end <= start) continue;
     const mid = (start + end) / 2;
-    const sB = inSet(busyS, mid);
-    const mB = inSet(busyM, mid);
+    const sB = inSet(intsS, mid);
+    const mB = inSet(intsM, mid);
 
     let state = 'free';
     if (noneFlag || (sB && mB)) state = 'blocked';

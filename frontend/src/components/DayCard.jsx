@@ -22,24 +22,36 @@ const isBusyKind = (s) => s.kind === 'work' || s.kind === 'other';
 // Always-expanded card. A single tap anywhere opens the editor.
 // No long-press, no collapse/expand state — the simplest possible
 // interaction that survives flaky pointer/touch quirks on iOS.
-export default function DayCard({ day, isToday, isPast, onTap }) {
+export default function DayCard({ day, prevShifts = [], isToday, isPast, onTap }) {
   const allShifts = day.shifts || [];
   const svetaBusy = sortShifts(allShifts.filter((s) => s.user_name === 'SVETA' && isBusyKind(s)));
   const mariaBusy = sortShifts(allShifts.filter((s) => s.user_name === 'MARIA' && isBusyKind(s)));
 
-  const { blocked } = computeDayCoverage(allShifts);
-  const segments = buildTimelineSegments(allShifts);
+  const { blocked } = computeDayCoverage(allShifts, prevShifts);
+  const segments = buildTimelineSegments(allShifts, prevShifts);
 
+  // Vertical bars: own busy intervals on this day, plus the 0→end tail
+  // of any overnight shift the user had on the previous day.
   function busyVbar(userName) {
-    return allShifts
+    const own = allShifts
       .filter((s) => s.user_name === userName && isBusyKind(s))
-      .map((s) => ({
-        id: s.id,
-        start: timeToMin(s.start_time),
-        end: timeToMin(s.end_time),
-      }))
-      .filter((x) => x.start != null && x.end != null && x.end > x.start)
-      .sort((a, b) => a.start - b.start);
+      .flatMap((s) => {
+        const a = timeToMin(s.start_time);
+        const b = timeToMin(s.end_time);
+        if (a == null || b == null) return [];
+        if (b > a) return [{ id: s.id, start: a, end: b }];
+        if (b < a) return [{ id: s.id, start: a, end: 1440 }];
+        return [];
+      });
+    const tails = (prevShifts || [])
+      .filter((s) => s.user_name === userName && isBusyKind(s))
+      .flatMap((s) => {
+        const a = timeToMin(s.start_time);
+        const b = timeToMin(s.end_time);
+        if (a == null || b == null || b >= a) return [];
+        return [{ id: `${s.id}-tail`, start: 0, end: b }];
+      });
+    return [...own, ...tails].sort((a, b) => a.start - b.start);
   }
   const svetaVbar = busyVbar('SVETA');
   const mariaVbar = busyVbar('MARIA');
@@ -63,42 +75,45 @@ export default function DayCard({ day, isToday, isPast, onTap }) {
       role="button"
       tabIndex={0}
     >
-      <WorkVBar intervals={svetaVbar} side="left"  cls="sveta" label="Света — занятость" />
-      <WorkVBar intervals={mariaVbar} side="right" cls="maria" label="Мария — занятость" />
+      <div className="card-grid">
+        <WorkVBar intervals={svetaVbar} cls="sveta" label="Света — занятость" />
 
-      <div className="card-content">
-        <div className="row1">
-          <span className="dow">{dow}</span>
-          <span className="date">{dnum}</span>
+        <div className="card-content">
+          <div className="row1">
+            <span className="dow">{dow}</span>
+            <span className="date">{dnum}</span>
+          </div>
+
+          <Timeline segments={segments} />
+
+          {totalEntries === 0 && !blocked.length && (
+            <div className="empty-day-row">
+              <span className="dot free" />
+              <span className="empty-day">Все свободны</span>
+            </div>
+          )}
+
+          {totalEntries > 0 && (
+            <div className="busy-list">
+              {svetaBusy.map((s) => <BusyCard key={s.id} shift={s} />)}
+              {mariaBusy.map((s) => <BusyCard key={s.id} shift={s} />)}
+            </div>
+          )}
+
+          {blocked.length > 0 && (
+            <div className="auto-blocks">
+              {blocked.map((b, i) => (
+                <div key={i} className="auto-blocked">
+                  <span className="dot none" />
+                  <span>Обе заняты — нужно решить</span>
+                  <span className="time-pill">{intervalLabel(b)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        <Timeline segments={segments} />
-
-        {totalEntries === 0 && !blocked.length && (
-          <div className="empty-day-row">
-            <span className="dot free" />
-            <span className="empty-day">Все свободны</span>
-          </div>
-        )}
-
-        {totalEntries > 0 && (
-          <div className="busy-list">
-            {svetaBusy.map((s) => <BusyCard key={s.id} shift={s} />)}
-            {mariaBusy.map((s) => <BusyCard key={s.id} shift={s} />)}
-          </div>
-        )}
-
-        {blocked.length > 0 && (
-          <div className="auto-blocks">
-            {blocked.map((b, i) => (
-              <div key={i} className="auto-blocked">
-                <span className="dot none" />
-                <span>Обе заняты — нужно решить</span>
-                <span className="time-pill">{intervalLabel(b)}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <WorkVBar intervals={mariaVbar} cls="maria" label="Мария — занятость" />
       </div>
     </div>
   );
@@ -128,10 +143,10 @@ function Timeline({ segments }) {
   );
 }
 
-function WorkVBar({ intervals, side, cls, label }) {
-  if (!intervals?.length) return <div className={`work-vbar ${side}`} aria-hidden="true" />;
+function WorkVBar({ intervals, cls, label }) {
+  if (!intervals?.length) return <div className="work-vbar" aria-hidden="true" />;
   return (
-    <div className={`work-vbar ${side}`} aria-label={label} title={label}>
+    <div className="work-vbar" aria-label={label} title={label}>
       {intervals.map((iv, i) => (
         <div
           key={iv.id || i}

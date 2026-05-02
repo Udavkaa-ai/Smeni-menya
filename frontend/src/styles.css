@@ -158,16 +158,19 @@ textarea { resize: vertical; min-height: 90px; }
   background: var(--card);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  padding: 12px 22px 14px;          /* extra horizontal padding for the work vbars */
-  display: flex; flex-direction: column;
+  padding: 10px 8px 12px;
   position: relative;
-  overflow: hidden;
   border: 1px solid var(--border);
   transition: transform .08s ease, box-shadow .15s ease, opacity .15s ease;
   user-select: none;
-  /* Prevent the browser from synthesizing duplicate mouse events from a
-     touch tap (the source of the stale double-fire-opens-modal bug). */
   touch-action: manipulation;
+  cursor: pointer;
+}
+.card-grid {
+  display: grid;
+  grid-template-columns: 8px 1fr 8px;
+  gap: 8px;
+  align-items: stretch;
 }
 .card:active { transform: scale(0.985); box-shadow: var(--shadow-md); }
 .card .card-content {
@@ -188,15 +191,14 @@ textarea { resize: vertical; min-height: 90px; }
    along the 0-24h vertical axis. Empty bars are still rendered (as a faint
    track) to preserve symmetry. */
 .work-vbar {
-  position: absolute;
-  top: 8px; bottom: 8px;
-  width: 6px;
+  position: relative;
+  width: 8px;
   background: rgba(0, 0, 0, 0.04);
   border-radius: 999px;
   overflow: hidden;
+  align-self: stretch;
+  min-height: 60px;
 }
-.work-vbar.left  { left: 6px; }
-.work-vbar.right { right: 6px; }
 .work-vbar .vbar-seg {
   position: absolute;
   left: 0; right: 0;
@@ -907,18 +909,20 @@ textarea { resize: vertical; min-height: 90px; }
 }
 .wheel-wrap {
   position: relative;
-  height: 168px;            /* 3 visible items × 56px */
+  height: 84px;             /* one full item + small peek above/below */
   overflow: hidden;
   border-radius: 12px;
+  /* Heavily fade out neighbors at rest — they only "appear" while
+     the user is actively scrolling and items pass through the band. */
   -webkit-mask-image: linear-gradient(180deg,
     transparent 0,
-    #000 25%,
-    #000 75%,
+    #000 17%,
+    #000 83%,
     transparent 100%);
   mask-image: linear-gradient(180deg,
     transparent 0,
-    #000 25%,
-    #000 75%,
+    #000 17%,
+    #000 83%,
     transparent 100%);
 }
 .wheel {
@@ -932,7 +936,7 @@ textarea { resize: vertical; min-height: 90px; }
   touch-action: pan-y;
 }
 .wheel::-webkit-scrollbar { display: none; }
-.wheel-pad { height: 28px; }
+.wheel-pad { height: 14px; }
 .wheel-item {
   height: 56px;
   scroll-snap-align: center;
@@ -965,7 +969,7 @@ textarea { resize: vertical; min-height: 90px; }
 .wheel-center-band {
   position: absolute;
   left: 4px; right: 4px;
-  top: 56px;             /* (height - itemH) / 2 */
+  top: 14px;             /* (84 - 56) / 2 */
   height: 56px;
   border-radius: 10px;
   background: rgba(139, 111, 224, 0.07);

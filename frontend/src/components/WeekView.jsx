@@ -127,6 +127,14 @@ export default function WeekView() {
     return { past, present };
   }, [days, today]);
 
+  // For overnight tails: each day "inherits" overnight tails from the day
+  // before. day[0] uses week.prev_shifts (from API); day[i>0] uses days[i-1].
+  function prevShiftsFor(date) {
+    const idx = days.findIndex((d) => d.date === date);
+    if (idx <= 0) return data?.prev_shifts || [];
+    return days[idx - 1].shifts || [];
+  }
+
   const openDay = days.find((d) => d.date === openDate) || null;
 
   const incoming = swaps.find((s) => s.to_user === me && s.status === 'PENDING');
@@ -178,10 +186,11 @@ export default function WeekView() {
             </button>
             {showPast && (
               <div className="past-list">
-                {partition.past.map((d) => (
+                {partition.past.map((d, i) => (
                   <DayCard
                     key={d.date}
                     day={d}
+                    prevShifts={prevShiftsFor(d.date)}
                     isToday={d.date === today}
                     isPast
                     onTap={() => setOpenDate(d.date)}
@@ -197,6 +206,7 @@ export default function WeekView() {
           <DayCard
             key={d.date}
             day={d}
+            prevShifts={prevShiftsFor(d.date)}
             isToday={d.date === today}
             onTap={() => setOpenDate(d.date)}
           />
