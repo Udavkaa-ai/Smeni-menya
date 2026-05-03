@@ -263,13 +263,18 @@ export function intervalLabel(iv) {
 //   'maria'   — only Maria is busy   (her color)
 //   'blocked' — both busy or NONE marker
 //   'free'    — neither is busy (default; either is with mom)
+// Build a list of contiguous timeline segments covering 0..1440 minutes.
+// The horizontal strip shows WHO IS WITH MOM at each moment (the inverse
+// of who is busy). Vertical bars on the card sides show busy times.
+//   'sveta'   — Sveta is with mom (Maria is busy)
+//   'maria'   — Maria is with mom (Sveta is busy)
+//   'blocked' — neither can be with mom (both busy, or NONE marker)
+//   'free'    — either could be with mom (neither is busy)
 export function buildTimelineSegments(shifts, prevShifts = []) {
   const list = shifts || [];
   const isBusy = (k) => k === 'work' || k === 'other';
   const noneFlag = !!list.find((s) => s.user_name === 'NONE');
 
-  // For each user, expand busy entries into [{start,end}] intervals
-  // that respect overnight wrapping AND tail-from-prev-day.
   function intervalsOf(user) {
     const own = list
       .filter((s) => s.user_name === user && isBusy(s.kind))
@@ -302,8 +307,8 @@ export function buildTimelineSegments(shifts, prevShifts = []) {
 
     let state = 'free';
     if (noneFlag || (sB && mB)) state = 'blocked';
-    else if (sB) state = 'sveta';
-    else if (mB) state = 'maria';
+    else if (sB) state = 'maria';   // Sveta busy → Maria is with mom
+    else if (mB) state = 'sveta';   // Maria busy → Sveta is with mom
 
     raw.push({ start, end, state });
   }
