@@ -54,6 +54,9 @@ export const api = {
   respondSwap: (id, action) =>
     request(`/swap/${id}/respond`, { method: 'POST', body: JSON.stringify({ action }) }),
   stats: (start) => request(`/stats?start=${start}`),
+  notifications: () => request('/notifications'),
+  ackNotification: (id) =>
+    request(`/notifications/${id}/ack`, { method: 'POST', body: '{}' }),
 };
 
 export function wsUrl() {

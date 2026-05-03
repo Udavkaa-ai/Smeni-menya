@@ -90,6 +90,19 @@ CREATE TABLE IF NOT EXISTS audit_log (
   payload JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Persistent notifications shown in-app until acknowledged.
+CREATE TABLE IF NOT EXISTS notifications (
+  id SERIAL PRIMARY KEY,
+  recipient TEXT NOT NULL CHECK (recipient IN ('SVETA','MARIA')),
+  kind TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}',
+  related_date DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  acknowledged_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS notifications_recipient_unack_idx
+  ON notifications(recipient, created_at) WHERE acknowledged_at IS NULL;
 `;
 
 async function ensureUsers() {

@@ -695,15 +695,22 @@ textarea { resize: vertical; min-height: 90px; }
 .auto-blocks, .auto-free {
   display: flex; flex-direction: column; gap: 6px;
   margin-top: 4px;
+}
+.auto-blocked {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 700;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #FFE2E2, #FFD1D1);
+  border: 1.5px solid #FCA5A5;
+  border-radius: 12px;
+  color: #B91C1C;
+}
+.auto-free-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 500;
+  color: var(--muted);
   margin-left: 4px;
 }
-.auto-blocked, .auto-free-row {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 13px; font-weight: 600;
-  color: var(--fg-2);
-}
-.auto-blocked { color: #8a4500; }
-.auto-free-row { color: var(--muted); font-weight: 500; }
 
 /* Free-gap quick-take button in modal */
 .free-gap-btn {
@@ -1143,4 +1150,57 @@ textarea { resize: vertical; min-height: 90px; }
 .loading {
   text-align: center; padding: 40px 20px;
   color: var(--muted); font-weight: 600;
+}
+
+/* Persistent in-app notifications stack */
+.notifications-bar {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 8px 14px 0;
+}
+.notif {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1.5px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+}
+.notif-body { flex: 1; min-width: 0; }
+.notif-title {
+  font-size: 13px; font-weight: 800; letter-spacing: 0.01em;
+  color: var(--fg);
+}
+.notif-text {
+  font-size: 13px; color: var(--fg-2);
+  margin-top: 2px;
+  word-break: break-word;
+}
+.notif-btn {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(135deg, var(--grad-from), var(--grad-to));
+  color: #fff;
+  font-weight: 700; font-size: 13px;
+  white-space: nowrap;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+.notif-btn:active { transform: scale(0.96); }
+.notif-btn:disabled { opacity: .5; }
+
+.notif.notif-conflict {
+  background: linear-gradient(135deg, #FFE2E2, #FFD1D1);
+  border-color: #FCA5A5;
+}
+.notif.notif-conflict .notif-title { color: #B91C1C; }
+.notif.notif-added {
+  background: linear-gradient(135deg, #FFF, #F2EEF9);
+}
+.notif.notif-removed {
+  background: linear-gradient(135deg, #FFF, #E5F6EC);
+}
+.notif.notif-updated {
+  background: linear-gradient(135deg, #FFF, #FFF7E5);
 }

@@ -52,6 +52,91 @@ const formatShift = (r) => ({
   version: r.version,
 });
 
+const formatNotificationRow = (r) => ({
+  id: r.id,
+  recipient: r.recipient,
+  kind: r.kind,
+  payload: r.payload || {},
+  related_date: r.related_date ? ymd(r.related_date) : null,
+  created_at: r.created_at,
+  acknowledged_at: r.acknowledged_at,
+});
+
+// Insert a persistent notification. Skips creation if an unacknowledged
+// notification of the same kind+date already exists (dedup for things
+// like ongoing conflicts).
+async function createNotification({ recipient, kind, payload = {}, relatedDate = null, dedup = false }) {
+  if (dedup && relatedDate) {
+    const dup = await query(
+      `SELECT id FROM notifications
+        WHERE recipient = $1 AND kind = $2 AND related_date = $3
+          AND acknowledged_at IS NULL
+        LIMIT 1`,
+      [recipient, kind, relatedDate]
+    );
+    if (dup.rowCount > 0) return null;
+  }
+  const ins = await query(
+    `INSERT INTO notifications (recipient, kind, payload, related_date)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [recipient, kind, payload, relatedDate]
+  );
+  const n = formatNotificationRow(ins.rows[0]);
+  broadcast('NOTIFICATION_NEW', n);
+  return n;
+}
+
+// After any shift change on `date`, look at all the day's shifts and
+// detect intervals where both users are busy. Create one conflict
+// notification per recipient (deduplicated by date).
+async function maybeNotifyConflict(date) {
+  const { rows } = await query(
+    `SELECT * FROM shifts WHERE date = $1`, [date]
+  );
+  const isBusy = (k) => k === 'work' || k === 'other';
+  const sBusy = rows.filter((r) => r.user_name === 'SVETA' && isBusy(r.kind));
+  const mBusy = rows.filter((r) => r.user_name === 'MARIA' && isBusy(r.kind));
+  // Find any minute-level overlap.
+  const intervals = (list) => list
+    .map((r) => {
+      const a = hhmmToMin(r.start_time);
+      const b = hhmmToMin(r.end_time);
+      if (a == null || b == null) return null;
+      return b > a ? { start: a, end: b } : { start: a, end: 1440 };
+    })
+    .filter(Boolean);
+  const sIntervals = intervals(sBusy);
+  const mIntervals = intervals(mBusy);
+  let overlap = null;
+  outer: for (const a of sIntervals) {
+    for (const b of mIntervals) {
+      const start = Math.max(a.start, b.start);
+      const end   = Math.min(a.end,   b.end);
+      if (end > start) { overlap = { start, end }; break outer; }
+    }
+  }
+  if (!overlap) return;
+  const payload = {
+    date,
+    start_time: minToHhmm(overlap.start),
+    end_time:   minToHhmm(overlap.end),
+  };
+  await createNotification({ recipient: 'SVETA', kind: 'conflict', payload, relatedDate: date, dedup: true });
+  await createNotification({ recipient: 'MARIA', kind: 'conflict', payload, relatedDate: date, dedup: true });
+}
+
+function hhmmToMin(t) {
+  if (!t) return null;
+  const [h, m] = String(t).split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+function minToHhmm(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
 const formatSwap = (r) => ({
   id: r.id,
   type: r.type || 'swap',
@@ -117,6 +202,31 @@ function buildShiftNotification({ action, by, shift, prev }) {
 
 // ---------- public routes ----------
 app.get('/health', (_req, res) => res.json({ ok: true }));
+
+// ---------- in-app notifications ----------
+app.get('/notifications', authMiddleware, async (req, res) => {
+  const { rows } = await query(
+    `SELECT * FROM notifications
+      WHERE recipient = $1 AND acknowledged_at IS NULL
+      ORDER BY created_at DESC`,
+    [req.user.name]
+  );
+  res.json(rows.map(formatNotificationRow));
+});
+
+app.post('/notifications/:id/ack', authMiddleware, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad_id' });
+  const { rows } = await query(
+    `UPDATE notifications SET acknowledged_at = NOW()
+      WHERE id = $1 AND recipient = $2 AND acknowledged_at IS NULL
+      RETURNING *`,
+    [id, req.user.name]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'not_found_or_acked' });
+  broadcast('NOTIFICATION_ACK', { id });
+  res.json(formatNotificationRow(rows[0]));
+});
 
 app.get('/auth/vapid', (_req, res) => {
   res.json({ publicKey: getPublicKey() });
@@ -220,7 +330,21 @@ app.post('/shift', authMiddleware, async (req, res) => {
     notifyUser(otherUser(req.user.name), buildShiftNotification({
       action: 'added', by: req.user.name, shift, prev: null,
     }));
+    if (shift.user_name === req.user.name) {
+      await createNotification({
+        recipient: otherUser(req.user.name),
+        kind: 'shift_added',
+        payload: {
+          by: req.user.name,
+          start_time: shift.start_time,
+          end_time: shift.end_time,
+          description: shift.description,
+        },
+        relatedDate: shift.date,
+      });
+    }
     audit(req.user.name, 'SHIFT_ADDED', { shift });
+    maybeNotifyConflict(shift.date).catch(() => {});
 
     res.json(shift);
   } catch (err) {
@@ -297,7 +421,23 @@ app.patch('/shift/:id', authMiddleware, async (req, res) => {
     notifyUser(otherUser(req.user.name), buildShiftNotification({
       action: 'updated', by: req.user.name, shift, prev: result.prev,
     }));
+    if (shift.user_name === req.user.name) {
+      await createNotification({
+        recipient: otherUser(req.user.name),
+        kind: 'shift_updated',
+        payload: {
+          by: req.user.name,
+          start_time: shift.start_time,
+          end_time: shift.end_time,
+          description: shift.description,
+          prev_start_time: result.prev?.start_time,
+          prev_end_time: result.prev?.end_time,
+        },
+        relatedDate: shift.date,
+      });
+    }
     audit(req.user.name, 'SHIFT_UPDATED', { shift, prev: result.prev });
+    maybeNotifyConflict(shift.date).catch(() => {});
 
     res.json(shift);
   } catch (err) {
@@ -340,7 +480,21 @@ app.delete('/shift/:id', authMiddleware, async (req, res) => {
     notifyUser(otherUser(req.user.name), buildShiftNotification({
       action: 'removed', by: req.user.name, shift: null, prev: result.prev,
     }));
+    if (result.prev.user_name === req.user.name) {
+      await createNotification({
+        recipient: otherUser(req.user.name),
+        kind: 'shift_removed',
+        payload: {
+          by: req.user.name,
+          start_time: result.prev.start_time,
+          end_time: result.prev.end_time,
+          description: result.prev.description,
+        },
+        relatedDate: result.prev.date,
+      });
+    }
     audit(req.user.name, 'SHIFT_REMOVED', { prev: result.prev });
+    maybeNotifyConflict(result.prev.date).catch(() => {});
 
     res.json({ ok: true, id });
   } catch (err) {

@@ -6,6 +6,7 @@ import DayCard from './DayCard.jsx';
 import DayModal from './DayModal.jsx';
 import SwapModal from './SwapModal.jsx';
 import SwapBanner from './SwapBanner.jsx';
+import NotificationsBar from './NotificationsBar.jsx';
 import { todayIso } from '../utils/format.js';
 
 const MONTHS = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
@@ -142,6 +143,8 @@ export default function WeekView() {
 
   return (
     <>
+      <NotificationsBar />
+
       <div className="weeknav">
         <button className="navbtn" onClick={prev} aria-label="Предыдущая неделя">‹</button>
         <div className="range" onClick={goToday}>
