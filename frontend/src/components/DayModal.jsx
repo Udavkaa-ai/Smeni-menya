@@ -4,6 +4,7 @@ import { api, getUser } from '../api/client.js';
 import { useWeekStore } from '../store/useWeekStore.js';
 import { ruDateLong, NAMES, timeRange } from '../utils/format.js';
 import TimeWheelPicker from './TimeWheelPicker.jsx';
+import useBackButtonClose from '../utils/useBackButtonClose.js';
 
 const isBusyKind = (s) => s.kind === 'work' || s.kind === 'other';
 
@@ -35,6 +36,9 @@ export default function DayModal({ day, onClose }) {
   const [busy, setBusy] = useState(initialMine);
   const [removed, setRemoved] = useState([]);
   const [saving, setSaving] = useState(false);
+  // Tie the device "back" gesture to closing this modal first, before the
+  // browser/OS goes back / exits the app.
+  useBackButtonClose(onClose);
   const [error, setError] = useState(null);
 
   const title = ruDateLong(day.date);
