@@ -79,12 +79,13 @@ export default function DayCard({ day, prevShifts = [], isToday, isPast, onTap }
         <WorkVBar intervals={svetaVbar} cls="sveta" label="Света — занятость" />
 
         <div className="card-content">
-          <div className="row1">
-            <span className="dow">{dow}</span>
-            <span className="date">{dnum}</span>
+          <div className="card-header">
+            <div className="row1">
+              <span className="dow">{dow}</span>
+              <span className="date">{dnum}</span>
+            </div>
+            <Timeline segments={segments} />
           </div>
-
-          <Timeline segments={segments} />
 
           {totalEntries === 0 && !blocked.length && (
             <div className="empty-day-row">
@@ -130,13 +131,6 @@ function Timeline({ segments }) {
             style={{ flex: `${s.end - s.start} 0 0` }}
             title={`${minToTime(s.start)}–${minToTime(s.end)}`}
           />
-        ))}
-      </div>
-      <div className="day-timeline-axis">
-        {[0, 6, 12, 18, 24].map((h) => (
-          <span key={h} className="ax" style={{ left: `${(h * 60 / 1440) * 100}%` }}>
-            {h === 24 ? '24' : h}
-          </span>
         ))}
       </div>
     </div>

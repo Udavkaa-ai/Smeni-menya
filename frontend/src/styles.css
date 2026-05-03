@@ -180,6 +180,18 @@ textarea { resize: vertical; min-height: 90px; }
 .card { padding: 10px 22px 12px; }
 .card .row1 { margin-bottom: 0; }
 .card .shifts { gap: 4px; }
+.card .card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.card .card-header .row1 { flex-shrink: 0; }
+.card .card-header .day-timeline {
+  flex: 1 1 0;
+  margin: 0;
+  min-width: 0;
+}
 .empty-day-row {
   display: flex; align-items: center; gap: 8px;
   font-size: 14px;
