@@ -6,8 +6,10 @@ CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   name TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
-  push_subscription JSONB
+  push_subscription JSONB,
+  notifications_enabled BOOLEAN NOT NULL DEFAULT true
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT true;
 
 -- Legacy table from v1, kept for data migration only.
 CREATE TABLE IF NOT EXISTS days (

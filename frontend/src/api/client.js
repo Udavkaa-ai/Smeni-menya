@@ -57,6 +57,9 @@ export const api = {
   notifications: () => request('/notifications'),
   ackNotification: (id) =>
     request(`/notifications/${id}/ack`, { method: 'POST', body: '{}' }),
+  getSettings: () => request('/settings'),
+  setSettings: (body) =>
+    request('/settings', { method: 'POST', body: JSON.stringify(body) }),
 };
 
 export function wsUrl() {

@@ -47,9 +47,10 @@ export async function saveSubscription(user, subscription) {
 export async function notifyUser(userName, payload) {
   if (!enabled) return;
   const { rows } = await query(
-    'SELECT push_subscription FROM users WHERE name = $1',
+    'SELECT push_subscription, notifications_enabled FROM users WHERE name = $1',
     [userName]
   );
+  if (rows[0] && rows[0].notifications_enabled === false) return;
   const sub = rows[0]?.push_subscription;
   if (!sub) return;
   try {

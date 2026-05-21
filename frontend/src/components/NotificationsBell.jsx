@@ -132,23 +132,23 @@ function NotificationCard({ n, onAck, disabled }) {
     cls = 'added';
     title = `${by}: новая занятость`;
     body = `${date}${tr ? `, ${tr}` : ''}${payload.description ? ` — ${payload.description}` : ''}`;
-    button = 'Хорошо, я с мамой';
+    button = 'Хорошо';
   } else if (kind === 'shift_removed') {
     cls = 'removed';
     title = `${by}: занятость снята`;
     body = `${date}${tr ? `, ${tr}` : ''}${payload.description ? ` — ${payload.description}` : ''}`;
-    button = 'Понятно';
+    button = 'Хорошо';
   } else if (kind === 'shift_updated') {
     cls = 'updated';
     const prev = timeRange(payload.prev_start_time, payload.prev_end_time);
     title = `${by}: занятость изменена`;
     body = `${date}${prev ? `: ${prev} → ${tr}` : tr ? `, ${tr}` : ''}`;
-    button = 'Понятно';
+    button = 'Хорошо';
   } else {
     cls = 'info';
     title = 'Уведомление';
     body = JSON.stringify(payload);
-    button = 'OK';
+    button = 'Хорошо';
   }
 
   return (

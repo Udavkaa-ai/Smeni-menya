@@ -66,6 +66,13 @@ const formatNotificationRow = (r) => ({
 // notification of the same kind+date already exists (dedup for things
 // like ongoing conflicts).
 async function createNotification({ recipient, kind, payload = {}, relatedDate = null, dedup = false }) {
+  // Skip if recipient opted out of notifications.
+  try {
+    const pref = await query(
+      'SELECT notifications_enabled FROM users WHERE name = $1', [recipient]
+    );
+    if (pref.rows[0] && pref.rows[0].notifications_enabled === false) return null;
+  } catch {}
   if (dedup && relatedDate) {
     const dup = await query(
       `SELECT id FROM notifications
@@ -212,6 +219,29 @@ app.get('/notifications', authMiddleware, async (req, res) => {
     [req.user.name]
   );
   res.json(rows.map(formatNotificationRow));
+});
+
+// ---------- settings ----------
+app.get('/settings', authMiddleware, async (req, res) => {
+  const { rows } = await query(
+    'SELECT notifications_enabled FROM users WHERE name = $1',
+    [req.user.name]
+  );
+  res.json({
+    notifications_enabled: rows[0]?.notifications_enabled ?? true,
+  });
+});
+
+app.post('/settings', authMiddleware, async (req, res) => {
+  const { notifications_enabled } = req.body || {};
+  if (typeof notifications_enabled !== 'boolean') {
+    return res.status(400).json({ error: 'bad_value' });
+  }
+  await query(
+    'UPDATE users SET notifications_enabled = $1 WHERE name = $2',
+    [notifications_enabled, req.user.name]
+  );
+  res.json({ notifications_enabled });
 });
 
 app.post('/notifications/:id/ack', authMiddleware, async (req, res) => {
