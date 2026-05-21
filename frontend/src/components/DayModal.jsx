@@ -150,9 +150,6 @@ export default function DayModal({ day, onClose }) {
 
         <div>
           <span className="label">Моя занятость</span>
-          {busy.length === 0 && (
-            <div className="empty-mine">Не отмечено — значит я с мамой</div>
-          )}
           {busy.map((s, idx) => (
             <div key={s.id || s._localId} className={`busy-card editable ${myCls}`}>
               <div className="busy-head">
