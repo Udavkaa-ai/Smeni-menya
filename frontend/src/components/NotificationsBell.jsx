@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../api/client.js';
 import { ruDateShort, NAMES, timeRange } from '../utils/format.js';
 import useBackButtonClose from '../utils/useBackButtonClose.js';
@@ -92,7 +93,11 @@ export default function NotificationsBell() {
 
 function NotificationsPanel({ items, busyId, onAck, onClose }) {
   useBackButtonClose(onClose);
-  return (
+  // Portal to document.body so the fixed-position backdrop covers the
+  // whole viewport. Without this, the bell is mounted inside .header which
+  // uses backdrop-filter — that creates a new containing block and
+  // confines `position: fixed` children to the tiny header rectangle.
+  return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal notifications-panel" onClick={(e) => e.stopPropagation()}>
         <h2>Уведомления</h2>
@@ -106,7 +111,8 @@ function NotificationsPanel({ items, busyId, onAck, onClose }) {
           <button className="btn primary full" onClick={onClose}>Закрыть</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
