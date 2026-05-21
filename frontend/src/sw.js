@@ -102,12 +102,18 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window' }).then((wins) => {
-      for (const w of wins) {
-        if ('focus' in w) return w.focus();
-      }
-      if (self.clients.openWindow) return self.clients.openWindow('/');
-    })
-  );
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (wins.length) {
+      // App is already open — focus it and ask it to open the notifications panel.
+      const w = wins[0];
+      try { await w.focus(); } catch {}
+      try { w.postMessage({ type: 'OPEN_NOTIFICATIONS' }); } catch {}
+      return;
+    }
+    // Cold start — open with a deep-link query the app picks up on boot.
+    if (self.clients.openWindow) {
+      return self.clients.openWindow('/?open=notifications');
+    }
+  })());
 });

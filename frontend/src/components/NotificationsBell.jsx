@@ -1,12 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { ruDateShort, NAMES, timeRange } from '../utils/format.js';
+import useBackButtonClose from '../utils/useBackButtonClose.js';
 
-// Persistent in-app notifications. Each one stays on the screen until the
-// user explicitly clicks "Понятно" / "Хорошо, я с мамой" / "Решено".
-// Backed by /notifications + /notifications/:id/ack on the server.
-export default function NotificationsBar() {
+// Notifications collapsed into a bell button + bottom-sheet panel.
+//   - Bell shows the unread count as a badge.
+//   - Tap bell → open panel with the list, each row has an Ack button.
+//   - Listens for sm:open-notifications event (fired by the SW when the
+//     user clicks a browser push), and for the ?open=notifications query
+//     parameter on first load.
+export default function NotificationsBell() {
   const [items, setItems] = useState([]);
+  const [open, setOpen] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
   async function refresh() {
@@ -15,15 +20,13 @@ export default function NotificationsBar() {
 
   useEffect(() => { refresh(); }, []);
 
-  // Wire up to WebSocket events broadcast by the server.
+  // Real-time sync via the existing sm:event bus (WebSocket).
   useEffect(() => {
     function onEvent(e) {
       const msg = e.detail;
       if (!msg) return;
       if (msg.type === 'NOTIFICATION_NEW') {
         setItems((cur) => {
-          // Server already deduped on (recipient, kind, related_date) for
-          // conflicts; for everything else just prepend.
           if (cur.some((n) => n.id === msg.payload.id)) return cur;
           return [msg.payload, ...cur];
         });
@@ -35,20 +38,74 @@ export default function NotificationsBar() {
     return () => window.removeEventListener('sm:event', onEvent);
   }, []);
 
+  // Auto-open the panel when the user lands here from a browser push.
+  useEffect(() => {
+    function onOpen() { setOpen(true); }
+    window.addEventListener('sm:open-notifications', onOpen);
+
+    // Deep-link via ?open=notifications (cold-start case).
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('open') === 'notifications') {
+        setOpen(true);
+        url.searchParams.delete('open');
+        window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+      }
+    } catch {}
+
+    return () => window.removeEventListener('sm:open-notifications', onOpen);
+  }, []);
+
   async function ack(id) {
     setBusyId(id);
-    setItems((cur) => cur.filter((n) => n.id !== id));   // optimistic
+    setItems((cur) => cur.filter((n) => n.id !== id));
     try { await api.ackNotification(id); }
-    catch { refresh(); /* roll back from server */ }
+    catch { refresh(); }
     finally { setBusyId(null); }
   }
 
-  if (!items.length) return null;
   return (
-    <div className="notifications-bar">
-      {items.map((n) => (
-        <NotificationCard key={n.id} n={n} onAck={() => ack(n.id)} disabled={busyId === n.id} />
-      ))}
+    <>
+      <button
+        type="button"
+        className={`bell-btn ${items.length ? 'has-unread' : ''}`}
+        onClick={() => setOpen(true)}
+        aria-label={`Уведомления${items.length ? `: ${items.length}` : ''}`}
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+        </svg>
+        {items.length > 0 && <span className="bell-badge">{items.length}</span>}
+      </button>
+      {open && (
+        <NotificationsPanel
+          items={items}
+          busyId={busyId}
+          onAck={ack}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+function NotificationsPanel({ items, busyId, onAck, onClose }) {
+  useBackButtonClose(onClose);
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal notifications-panel" onClick={(e) => e.stopPropagation()}>
+        <h2>Уведомления</h2>
+        {items.length === 0 && (
+          <div className="empty-mine">Новых уведомлений нет</div>
+        )}
+        {items.map((n) => (
+          <NotificationCard key={n.id} n={n} onAck={() => onAck(n.id)} disabled={busyId === n.id} />
+        ))}
+        <div className="toolbar">
+          <button className="btn primary full" onClick={onClose}>Закрыть</button>
+        </div>
+      </div>
     </div>
   );
 }

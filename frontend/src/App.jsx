@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Login from './components/Login.jsx';
 import WeekView from './components/WeekView.jsx';
+import NotificationsBell from './components/NotificationsBell.jsx';
 import { isAuthed, getUser, setSession } from './api/client.js';
 import { createRealtime } from './api/realtime.js';
 import { ensurePushSubscription } from './api/push.js';
@@ -64,7 +65,24 @@ export default function App() {
       setMe(null);
     }
     window.addEventListener('sm:logout', onLogout);
-    return () => window.removeEventListener('sm:logout', onLogout);
+
+    // Bridge service-worker → window: when the SW (after a push-notification
+    // click) posts OPEN_NOTIFICATIONS, surface it as a window event so the
+    // bell component can react and open its panel.
+    function onSWMessage(e) {
+      if (e.data?.type === 'OPEN_NOTIFICATIONS') {
+        window.dispatchEvent(new CustomEvent('sm:open-notifications'));
+      }
+    }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', onSWMessage);
+    }
+    return () => {
+      window.removeEventListener('sm:logout', onLogout);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', onSWMessage);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -121,7 +139,10 @@ export default function App() {
             </span>
           </div>
         </div>
-        <button className="iconbtn" onClick={logout}>Выйти</button>
+        <div className="header-actions">
+          <NotificationsBell />
+          <button className="iconbtn" onClick={logout}>Выйти</button>
+        </div>
       </div>
       <WeekView live={live} />
       {toast && <div className="toast">{toast}</div>}
